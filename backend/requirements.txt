@@ -1,0 +1,9 @@
+sqlalchemy 
+asyncpg
+fastapi
+uvicorn
+email-validator
+pydantic-settings
+httpx
+langchain_groq
+psycopg2-binary
