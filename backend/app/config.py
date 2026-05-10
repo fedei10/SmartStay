@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "local"
 
     GROQ_API_KEY: str | None = None
+    LITE_API: str | None = None
 
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
