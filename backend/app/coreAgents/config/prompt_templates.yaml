@@ -1,0 +1,432 @@
+# prompt_templates.yaml
+# Source: LiteAPI booking website instructions and minimal wiring guide.
+# Purpose: Reusable prompt templates for generating a LiteAPI hotel booking website.
+
+metadata:
+  project_name: "LiteAPI Booking Website"
+  version: "1.0.0"
+  environment: "sandbox"
+  api_provider: "LiteAPI"
+  api_key_placeholder: "${LITEAPI_API_KEY}"
+  default_api_key: "sand_c0155ab8-c683-4f26-8f94-b5e92c5797b9"
+  important_security_rule: "All LiteAPI calls must be made server-side. Never expose the LiteAPI API key to the client."
+
+global_instructions: |
+  Create a booking website using LiteAPI.
+
+  The user should be able to:
+  - Choose whether to search by destination using LiteAPI Places Search, or search for a hotel by free text using LiteAPI AI Search.
+  - Select a date range.
+  - Select the number of guests.
+  - Select a hotel and see available offers grouped by room.
+  - See the room name and first image for each room group.
+  - Select an offer and book the hotel.
+  - Enter guest details in checkout: first name, last name, and email.
+  - See the LiteAPI payment form.
+  - Complete payment.
+  - See booking confirmation and hotel details.
+
+  Use the provided LiteAPI sandbox key through environment variables:
+  LITEAPI_API_KEY=sand_c0155ab8-c683-4f26-8f94-b5e92c5797b9
+
+  Do not call LiteAPI endpoints directly from the browser because the endpoints have CORS restrictions and the API key must remain private.
+
+liteapi:
+  base_api_url: "https://api.liteapi.travel/v3.0"
+  base_book_url: "https://book.liteapi.travel/v3.0"
+  headers:
+    X-API-Key: "${LITEAPI_API_KEY}"
+    accept: "application/json"
+    content-type: "application/json"
+  api_key_rules:
+    production_prefix: "prod_"
+    sandbox_prefix: "sandbox_"
+    note: "The provided key is a sandbox key. Configure the payment SDK publicKey as sandbox."
+
+endpoints:
+  search_places:
+    method: "GET"
+    url: "https://api.liteapi.travel/v3.0/data/places?textQuery={q}"
+    purpose: "Autocomplete destination search and keep placeId plus displayName."
+    response_shape:
+      data:
+        - placeId: "ChIJdd4hrwug2EcRmSrV3Vo6llI"
+          displayName: "London"
+          formattedAddress: "UK"
+
+  search_hotel_rates_by_place:
+    method: "POST"
+    url: "https://api.liteapi.travel/v3.0/hotels/rates"
+    purpose: "Search hotels and rates by placeId."
+    body:
+      occupancies:
+        - adults: 2
+      currency: "USD"
+      guestNationality: "US"
+      checkin: "YYYY-MM-DD"
+      checkout: "YYYY-MM-DD"
+      placeId: "<from places>"
+      roomMapping: true
+      maxRatesPerHotel: 1
+      includeHotelData: true
+
+  search_hotel_rates_single_hotel:
+    method: "POST"
+    url: "https://api.liteapi.travel/v3.0/hotels/rates"
+    purpose: "Search all available rates for one selected hotel."
+    body:
+      hotelIds:
+        - "<hotelId>"
+      occupancies:
+        - adults: 2
+      currency: "USD"
+      guestNationality: "US"
+      checkin: "YYYY-MM-DD"
+      checkout: "YYYY-MM-DD"
+      roomMapping: true
+      includeHotelData: true
+    note: "When used on the hotel page, do not include maxRatesPerHotel so all rates can be returned."
+
+  ai_search_rates:
+    method: "POST"
+    url: "https://api.liteapi.travel/v3.0/hotels/rates"
+    purpose: "Search hotels by free text/vibe and return rates plus brief hotel info."
+    body:
+      occupancies:
+        - adults: 2
+      currency: "USD"
+      guestNationality: "US"
+      checkin: "YYYY-MM-DD"
+      checkout: "YYYY-MM-DD"
+      maxRatesPerHotel: 1
+      roomMapping: true
+      aiSearch: "romantic getaway in paris"
+      includeHotelData: true
+    implementation_note: "Use hotels[] to render cards and match prices from data[] using hotelId."
+
+  prebook:
+    method: "POST"
+    url: "https://book.liteapi.travel/v3.0/rates/prebook"
+    purpose: "Prebook the selected offer before showing payment."
+    body:
+      usePaymentSdk: true
+      offerId: "<offerId from selected roomTypes response>"
+    required_storage:
+      - prebookId
+      - transactionId
+      - secretKey
+      - offerId
+      - hotelId
+    ux_note: "Prebook can take 5-10 seconds. Show a loading state."
+    error_handling: "If prebook fails, redirect the user back to the hotel page and ask them to choose another rate."
+
+  book:
+    method: "POST"
+    url: "https://book.liteapi.travel/v3.0/rates/book"
+    purpose: "Finalize booking after payment success."
+    body:
+      prebookId: "<from prebook>"
+      holder:
+        firstName: "John"
+        lastName: "Doe"
+        email: "john@example.com"
+      payment:
+        method: "TRANSACTION_ID"
+        transactionId: "<from prebook>"
+      guests:
+        - occupancyNumber: 1
+          firstName: "John"
+          lastName: "Doe"
+          email: "john@example.com"
+    ux_note: "Booking can take 5-10 seconds. Show a loading state."
+    success_display:
+      - bookingId
+      - status
+      - hotelConfirmationCode
+      - checkin
+      - checkout
+      - hotel.name
+      - price
+      - currency
+      - cancellationPolicies
+
+  hotel_details:
+    method: "GET"
+    url: "https://api.liteapi.travel/v3.0/data/hotel?hotelId={hotelId}&timeout=4"
+    purpose: "Fetch detailed hotel data for the hotel page and confirmation page."
+    display_fields:
+      - name
+      - hotelDescription
+      - hotelImages
+      - hotelImportantInformation
+      - main_photo
+      - videoUrl
+      - city
+      - country
+      - address
+      - hotelFacilities
+      - starRating
+      - location
+      - rooms
+      - policies
+      - sentiment_analysis
+
+payment_sdk:
+  script_url: "https://payment-wrapper.liteapi.travel/dist/liteAPIPayment.js?v=a1"
+  sandbox_test_card:
+    card_number: "4242424242424242"
+    cvv: "Any three digits"
+    expiration_date: "Any future expiration date"
+  config_template: |
+    var liteAPIConfig = {
+      publicKey: 'sandbox',
+      secretKey: '<from prebook response>',
+      returnUrl: '<your-booking-page-url>?prebookId=123&transactionId=456',
+      targetElement: '#targetElement',
+      appearance: { theme: 'flat' },
+      options: { business: { name: 'Your Business' } }
+    };
+
+    var liteAPIPayment = new LiteAPIPayment(liteAPIConfig);
+
+    document.addEventListener('DOMContentLoaded', function() {
+      liteAPIPayment.handlePayment();
+    });
+  implementation_rules:
+    - "Collect guest details before displaying the payment form."
+    - "Use secretKey from the prebook response."
+    - "Set publicKey to sandbox for sandbox API keys and live for production API keys."
+    - "Set returnUrl to the booking page or callback page."
+    - "Persist prebookId and transactionId because they cannot be retrieved later."
+    - "After payment success, call the Book endpoint using prebookId and transactionId."
+    - "Style the LiteAPI SDK Pay button class lp-submit-button to match the rest of the UI."
+
+data_mapping:
+  hotel_rates:
+    offerId: "roomTypes[].offerId. Use it to prebook the selected offer."
+    room_name: "roomTypes[].rates[].name. Display this as the room/rate name."
+    mappedRoomId: "roomTypes[].rates[].mappedRoomId. Use this to group rates visually by room."
+    boardName: "roomTypes[].rates[].boardName. Display this as the board name."
+    price: "roomTypes[].rates[].retailRate.total[0].amount"
+    currency: "roomTypes[].rates[].retailRate.total[0].currency"
+    taxes_badge: "roomTypes[].rates[].retailRate.taxesAndFees[].included"
+    refundable_tag: "roomTypes[].rates[].cancellationPolicies.refundableTag"
+    cancel_policy: "roomTypes[].rates[].cancellationPolicies.cancelPolicyInfos[].cancelTime"
+  ai_search:
+    hotel_card_source: "hotels[]"
+    rates_source: "data[]"
+    join_key: "hotelId"
+  hotel_details:
+    room_images_source: "data.rooms[].photos[0].url"
+    fallback_image_source: "data.main_photo or data.hotelImages[0].url"
+
+user_flows:
+  destination_search_flow:
+    - "User selects search mode: destination."
+    - "User types a destination query."
+    - "Server calls Search Places."
+    - "User selects a place."
+    - "User selects check-in, checkout, and guests."
+    - "Server calls Search Hotel Rates using placeId."
+    - "UI displays hotel cards."
+    - "User opens hotel details."
+    - "Server fetches Hotel Details and re-queries rates by hotelId."
+    - "UI groups offers by mappedRoomId and displays room name plus first room image."
+    - "User selects an offer."
+    - "Server calls Prebook using offerId."
+    - "Checkout collects guest details."
+    - "UI displays Payment SDK form."
+    - "Payment redirects to returnUrl."
+    - "Server calls Book using prebookId and transactionId."
+    - "UI displays confirmation and hotel details."
+
+  ai_search_flow:
+    - "User selects search mode: search by vibe."
+    - "User enters free text such as romantic getaway in Paris."
+    - "User selects check-in, checkout, and guests."
+    - "Server calls Search Hotel Rates using aiSearch and includeHotelData=true."
+    - "UI renders hotel cards from hotels[] and attaches prices from data[] using hotelId."
+    - "User opens hotel details."
+    - "Continue with prebook, guest details, payment, book, and confirmation."
+
+prompt_templates:
+  system_prompt: |
+    You are a senior full-stack engineer building a production-ready hotel booking website using LiteAPI.
+    Follow security best practices, keep API keys server-side only, and implement a clean user experience.
+    The website must support destination search, AI vibe search, hotel details, room-grouped offers, prebooking, LiteAPI payment SDK, final booking, and confirmation.
+
+  requirements_prompt: |
+    Convert the following requirements into a detailed implementation plan for a LiteAPI hotel booking website.
+
+    Requirements:
+    - Two search modes: destination search using places autocomplete, and free text "search by vibe" using LiteAPI AI Search.
+    - User selects date range and number of guests.
+    - Search results show hotels with images, address, rating, and price when available.
+    - Hotel detail page displays hotel details and all available offers.
+    - Offers must be grouped by room using mappedRoomId.
+    - Each room group must display the room name and first image.
+    - User selects an offer and starts checkout.
+    - Checkout collects guest first name, last name, and email before payment.
+    - Payment uses LiteAPI Payment SDK.
+    - After payment success, finalize booking using prebookId and transactionId.
+    - Confirmation page displays bookingId, hotelConfirmationCode, hotel details, dates, price, currency, and cancellation policy.
+
+    Constraints:
+    - LiteAPI API key must be server-side only.
+    - Do not call LiteAPI directly from the client.
+    - Use the sandbox environment.
+    - Add sandbox payment note with test card 4242424242424242, any 3-digit CVV, and any future expiration date.
+
+  architecture_prompt: |
+    Design the architecture for a LiteAPI hotel booking website.
+
+    Include:
+    - Frontend pages/components.
+    - Backend API routes.
+    - Environment variables.
+    - Server-side LiteAPI client/service.
+    - Data models or types.
+    - Session or database persistence needed for prebookId and transactionId.
+    - Error handling strategy.
+    - Loading states for prebook and book calls.
+    - Security rules for protecting the LiteAPI key.
+
+  backend_prompt: |
+    Implement the backend LiteAPI integration.
+
+    Required server-side functions:
+    - searchPlaces(textQuery)
+    - searchRatesByPlace({ placeId, checkin, checkout, adults, currency, guestNationality })
+    - searchRatesByAi({ aiSearch, checkin, checkout, adults, currency, guestNationality })
+    - searchRatesByHotel({ hotelId, checkin, checkout, adults, currency, guestNationality })
+    - prebookOffer(offerId)
+    - bookHotel({ prebookId, transactionId, holder, guests })
+    - getHotelDetails(hotelId)
+
+    Rules:
+    - Use X-API-Key from environment variables.
+    - Add accept: application/json to all requests.
+    - Add content-type: application/json for POST requests.
+    - Never expose the API key in client code.
+    - Normalize errors into user-friendly messages.
+    - Store prebookId, transactionId, secretKey, hotelId, and selected offer data after prebook.
+
+  frontend_prompt: |
+    Implement the frontend booking experience.
+
+    Required UI:
+    - Search mode toggle: Destination or Search by vibe.
+    - Destination autocomplete when destination mode is selected.
+    - Free text input when AI search mode is selected.
+    - Check-in and checkout date inputs.
+    - Guest/adult count input.
+    - Hotel results cards with name, photo, address, rating, price, and tags/persona/style when available.
+    - Hotel details page with description, images, facilities, policies, sentiment pros/cons, and offers.
+    - Offers grouped by mappedRoomId.
+    - Each room group displays room name, first image, board name, price, taxes included badge, refundable/non-refundable tag, and cancellation deadline when available.
+    - Checkout form for guest first name, last name, and email.
+    - Payment SDK container.
+    - Booking confirmation page.
+
+    UX rules:
+    - Show loading while searching, prebooking, and booking.
+    - Show clear errors for invalid offer, prebook failure, payment failure, and booking failure.
+    - For sandbox, show test card instructions.
+
+  payment_prompt: |
+    Implement LiteAPI Payment SDK integration.
+
+    Flow:
+    - User selects an offer.
+    - Server calls prebook with usePaymentSdk=true and offerId.
+    - Save prebookId, transactionId, and secretKey.
+    - Collect guest details before showing the payment form.
+    - Load the LiteAPI Payment SDK script.
+    - Initialize LiteAPIPayment with:
+      - publicKey: sandbox
+      - secretKey: from prebook response
+      - returnUrl: booking callback URL containing prebookId and transactionId
+      - targetElement: "#targetElement"
+      - appearance: { theme: "flat" }
+      - options.business.name: website/business name
+    - Style .lp-submit-button to match the website.
+    - After payment success redirect, call the booking endpoint using prebookId and transactionId.
+
+    Sandbox note:
+    Display: "Use test card 4242424242424242, any three digits for CVV, and any future expiration date."
+
+  booking_prompt: |
+    Implement the final booking step.
+
+    Required input:
+    - prebookId
+    - transactionId
+    - holder.firstName
+    - holder.lastName
+    - holder.email
+    - guests array with occupancyNumber, firstName, lastName, and email
+
+    Request body:
+    {
+      "prebookId": "<from prebook>",
+      "holder": {
+        "firstName": "<guest first name>",
+        "lastName": "<guest last name>",
+        "email": "<guest email>"
+      },
+      "payment": {
+        "method": "TRANSACTION_ID",
+        "transactionId": "<from prebook>"
+      },
+      "guests": [{
+        "occupancyNumber": 1,
+        "firstName": "<guest first name>",
+        "lastName": "<guest last name>",
+        "email": "<guest email>"
+      }]
+    }
+
+    On success:
+    - Display bookingId.
+    - Display status.
+    - Display hotelConfirmationCode.
+    - Display hotel name.
+    - Display check-in and checkout.
+    - Display price and currency.
+    - Display cancellation policy.
+
+    On error:
+    - Show a clear error message.
+    - If transactionId is missing, explain that payment/prebook state was lost and user must retry checkout.
+
+  testing_prompt: |
+    Create a test plan for the LiteAPI booking website.
+
+    Test cases:
+    - Destination autocomplete returns places.
+    - Destination search returns hotel rates.
+    - AI search returns hotels[] and data[] and UI matches them by hotelId.
+    - Hotel details endpoint returns hotel information.
+    - Hotel page re-queries rates by hotelId without maxRatesPerHotel.
+    - Offers are grouped correctly by mappedRoomId.
+    - Room group displays room name and first image.
+    - Prebook succeeds with a valid offerId.
+    - Prebook failure redirects user to select another rate.
+    - Guest details are required before payment.
+    - Payment SDK loads using sandbox publicKey and secretKey.
+    - Booking succeeds with prebookId and transactionId.
+    - Confirmation displays bookingId and hotelConfirmationCode.
+    - API key is never present in client bundle or network calls from browser to LiteAPI.
+
+  refactor_prompt: |
+    Refactor the LiteAPI booking website code for maintainability.
+
+    Goals:
+    - Separate LiteAPI calls into a dedicated server-side service.
+    - Use typed request and response models.
+    - Centralize error handling.
+    - Centralize money/date formatting.
+    - Avoid duplicating search payload construction.
+    - Keep prebook/payment/booking state reliable.
+    - Improve UI components for hotel cards, room groups, offer cards, checkout form, and confirmation.
+    - Add clear comments only where logic is non-obvious.

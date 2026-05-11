@@ -10,17 +10,21 @@ from app.config import settings
 LITEAPI_BASE_URL = "https://api.liteapi.travel/v3.0"
 
 
-def test_liteapi_connection():
+def test_liteapi_connection(
+    api_key: str | None = None,
+    country_code: str = "IT",
+    city_name: str = "Rome",
+):
     """
     Test the LiteAPI connection by fetching a small hotel list.
     Returns a structured result without exposing the API key.
     """
-    api_key = settings.LITE_API
+    api_key = api_key or settings.LITEAPI_API_KEY
 
     if not api_key:
         return {
             "status": "error",
-            "message": "LITE_API is not configured",
+            "message": "LITEAPI_API_KEY is not configured",
         }
 
     url = f"{LITEAPI_BASE_URL}/data/hotels"
@@ -29,8 +33,8 @@ def test_liteapi_connection():
         "Accept": "application/json",
     }
     params = {
-        "countryCode": "IT",
-        "cityName": "Rome",
+        "countryCode": country_code,
+        "cityName": city_name,
     }
 
     try:

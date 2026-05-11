@@ -31,6 +31,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    extra_hosts:
+      - "mcp.liteapi.travel:216.150.1.1"
     ports:
       - "8001:8000"
     volumes:
