@@ -6,15 +6,27 @@ from fastapi.responses import JSONResponse, Response
 
 from app.agents.booking.dependencies import build_booking_deps
 from app.agents.booking.graph import build_booking_graph
+from app.api.V1.bookings import router as bookings_router
 from app.api.V1.chat import router as chat_router
 from app.api.V1.flights import router as flights_router
 from app.api.V1.health import router as health_router
 from app.api.V1.hotels import router as hotels_router
+from app.api.V1.users import router as users_router
 from app.config import settings
 from app.core.limiter import limiter
 from app.core.logging import configure_logging
 from app.core.metrics import metrics_response
 from app.core.middleware import RequestContextMiddleware
+from app.db.database import engine
+from app.db.models import Base
+from app.models import Booking, BookingSession, User, UserProfile
+
+try:
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from psycopg_pool import AsyncConnectionPool
+    _has_pg_saver = True
+except ImportError:
+    _has_pg_saver = False
 
 try:
     from slowapi.errors import RateLimitExceeded
@@ -29,9 +41,34 @@ except ImportError:  # pragma: no cover - optional dependency.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     app.state.booking_deps = build_booking_deps()
-    app.state.booking_graph = build_booking_graph()
+
+    if _has_pg_saver:
+        # Build a psycopg3-style DSN (no +asyncpg driver prefix)
+        db_url = (
+            f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
+            f"@{settings.POSTGRES_SERVER}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+        )
+        pool = AsyncConnectionPool(
+            db_url, min_size=1, max_size=5, open=False,
+            kwargs={"autocommit": True},
+        )
+        await pool.open()
+        checkpointer = AsyncPostgresSaver(pool)
+        await checkpointer.setup()
+        app.state._pg_pool = pool
+    else:
+        from langgraph.checkpoint.memory import MemorySaver
+        checkpointer = MemorySaver()
+        app.state._pg_pool = None
+
+    app.state.booking_graph = build_booking_graph(checkpointer=checkpointer)
     yield
+
+    if getattr(app.state, "_pg_pool", None):
+        await app.state._pg_pool.close()
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -52,6 +89,8 @@ app.include_router(health_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(hotels_router, prefix="/api/v1")
 app.include_router(flights_router, prefix="/api/v1")
+app.include_router(users_router, prefix="/api/v1")
+app.include_router(bookings_router, prefix="/api/v1")
 
 
 @app.get("/metrics", include_in_schema=False)

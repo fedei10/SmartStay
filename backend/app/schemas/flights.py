@@ -12,6 +12,33 @@ class FlightLeg(StrictSchema):
     destination: str = Field(..., min_length=3, max_length=3)
     date: str
     direction: Literal["OUTBOUND", "INBOUND"] | None = None
+    filters: dict[str, Any] | None = None
+
+
+class FlightSearchFilters(StrictSchema):
+    arrivalTimeBefore: str | None = None
+    cabinClass: str | None = None
+    cabinClassMatch: Literal["exactly", "at_least"] | None = None
+    changeableOnly: bool | None = None
+    departureTimeBefore: str | None = None
+    excludeConnectionAirports: list[str] | None = None
+    excludeOvernight: bool | None = None
+    flightNumbers: list[str] | None = None
+    flightNumbersMatch: Literal["any", "all"] | None = None
+    includesCarryOnBag: bool | None = None
+    includesCheckedBag: bool | None = None
+    legDurations: list[dict[str, Any]] | None = None
+    maxDuration: int | None = Field(default=None, ge=1)
+    maxPrice: float | None = Field(default=None, ge=0)
+    minPrice: float | None = Field(default=None, ge=0)
+    maxStops: int | None = Field(default=None, ge=-1, le=2)
+    refundableOnly: bool | None = None
+    showCheapestOfferOnly: bool | None = None
+
+
+class FlightSort(StrictSchema):
+    sortBy: Literal["price", "duration", "departure", "arrival", "stops"]
+    sortOrder: Literal["asc", "desc"] = "asc"
 
 
 class FlightSearchRequest(StrictSchema):
@@ -19,9 +46,14 @@ class FlightSearchRequest(StrictSchema):
     adults: int = Field(default=1, ge=1)
     children: int = Field(default=0, ge=0)
     infants: int = Field(default=0, ge=0)
+    childrenAges: list[int] | None = None
+    infantAges: list[int] | None = None
     currency: str = Field(default="USD", min_length=3, max_length=3)
     country: str = Field(default="US", min_length=2, max_length=2)
-    cabin: str | None = None
+    cabinClass: Literal["ECONOMY", "PREMIUM_ECONOMY", "BUSINESS", "FIRST"] | None = None
+    maxStops: int | None = Field(default=None, ge=-1, le=2)
+    filters: FlightSearchFilters | None = None
+    sort: FlightSort | None = None
 
 
 class FlightVerifyRequest(StrictSchema):
@@ -71,9 +103,39 @@ class FlightPrebookRequest(StrictSchema):
 
 
 class FlightAttachServicesRequest(StrictSchema):
-    services: list[dict[str, Any]] = Field(default_factory=list)
+    selectedServices: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def support_legacy_services_key(cls, value: Any):
+        if isinstance(value, dict) and "selectedServices" not in value and "services" in value:
+            normalized = dict(value)
+            normalized["selectedServices"] = normalized.pop("services")
+            return normalized
+        return value
 
 
 class FlightBookRequest(StrictSchema):
     prebookId: str = Field(..., min_length=1)
-    transactionId: str = Field(..., min_length=1)
+    payment: dict[str, Any] | None = None
+    transactionId: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def normalize_payment(self):
+        if self.payment is not None:
+            method = self.payment.get("method")
+            transaction_id = self.payment.get("transactionId")
+            if method == "TRANSACTION_ID" and not transaction_id:
+                raise ValueError("payment.transactionId is required when payment.method is TRANSACTION_ID")
+            if method not in {"TRANSACTION_ID", "CREDIT"}:
+                raise ValueError("payment.method must be TRANSACTION_ID or CREDIT")
+            return self
+
+        if not self.transactionId:
+            raise ValueError("transactionId is required when payment is not provided")
+
+        self.payment = {
+            "method": "TRANSACTION_ID",
+            "transactionId": self.transactionId,
+        }
+        return self

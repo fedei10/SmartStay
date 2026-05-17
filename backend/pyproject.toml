@@ -24,7 +24,8 @@ dependencies = [
     "langgraph",
     "langgraph-checkpoint-redis",
     "langchain-elasticsearch",
-    "elasticsearch",
+    "elasticsearch>=8,<9",
+    "aiohttp",
     "prometheus-client",
     "slowapi",
 ]

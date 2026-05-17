@@ -43,16 +43,17 @@ class LiteAPIFlightsService:
             timeout=60.0,
         )
 
-    async def book(self, prebook_id: str, transaction_id: str) -> dict[str, Any]:
+    async def book(
+        self,
+        prebook_id: str,
+        payment: dict[str, Any],
+    ) -> dict[str, Any]:
         return await self.client.request(
             "POST",
             "/flights/bookings",
             json={
                 "prebookId": prebook_id,
-                "payment": {
-                    "method": "TRANSACTION_ID",
-                    "transactionId": transaction_id,
-                },
+                "payment": payment,
             },
             timeout=60.0,
         )
@@ -60,6 +61,13 @@ class LiteAPIFlightsService:
     async def get_booking(self, booking_id: str) -> dict[str, Any]:
         return await self.client.request(
             "GET",
+            f"/flights/bookings/{booking_id}",
+            timeout=30.0,
+        )
+
+    async def cancel_booking(self, booking_id: str) -> dict[str, Any]:
+        return await self.client.request(
+            "DELETE",
             f"/flights/bookings/{booking_id}",
             timeout=30.0,
         )

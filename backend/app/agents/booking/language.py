@@ -49,6 +49,58 @@ def agent_configuration_error(language: SupportedLanguage, provider: str | None 
     )
 
 
+def provider_runtime_error(
+    language: SupportedLanguage,
+    provider: str | None = None,
+    error_message: str | None = None,
+) -> str:
+    provider_name = provider or "AI provider"
+    details = (error_message or "").lower()
+
+    is_quota_error = any(
+        token in details
+        for token in (
+            "resource_exhausted",
+            "quota exceeded",
+            "rate limit",
+            "rate-limit",
+            "too many requests",
+            "429",
+        )
+    )
+
+    if is_quota_error:
+        if language == "ar":
+            return (
+                f"لا يمكنني استخدام {provider_name} الآن لأن حد الاستخدام أو الحصة قد تم تجاوزها. "
+                "حاول مرة أخرى بعد قليل."
+            )
+        if language == "fr":
+            return (
+                f"Je ne peux pas utiliser {provider_name} pour le moment car le quota ou la limite "
+                "de requêtes a été dépassé. Réessayez dans un instant."
+            )
+        return (
+            f"I cannot use {provider_name} right now because its quota or rate limit was exceeded. "
+            "Please try again shortly."
+        )
+
+    if language == "ar":
+        return (
+            f"تعذر علي استخدام {provider_name} الآن بسبب خطأ مؤقت من مزود الذكاء الاصطناعي. "
+            "حاول مرة أخرى."
+        )
+    if language == "fr":
+        return (
+            f"Je ne peux pas utiliser {provider_name} pour le moment à cause d'une erreur temporaire "
+            "du fournisseur IA. Réessayez."
+        )
+    return (
+        f"I cannot use {provider_name} right now because of a temporary AI provider error. "
+        "Please try again."
+    )
+
+
 def hotel_search_error(language: SupportedLanguage) -> str:
     if language == "ar":
         return "لم أتمكن من البحث عن الفنادق الآن. حاول مرة أخرى."
@@ -63,36 +115,6 @@ def no_hotels_found(language: SupportedLanguage) -> str:
     if language == "fr":
         return "Je n'ai trouvé aucun hôtel pour cette destination."
     return "I did not find hotels for that destination."
-
-
-def flight_search_error(language: SupportedLanguage) -> str:
-    if language == "ar":
-        return "لم أتمكن من البحث عن الرحلات الآن. حاول مرة أخرى."
-    if language == "fr":
-        return "Je n'ai pas pu rechercher les vols pour le moment. Réessayez."
-    return "I could not search flights right now. Please try again."
-
-
-def no_flights_found(language: SupportedLanguage) -> str:
-    if language == "ar":
-        return "لم أجد رحلات لهذه الوجهة في هذه التواريخ."
-    if language == "fr":
-        return "Aucun vol trouvé pour cette destination et ces dates."
-    return "No flights found for that route and dates. Try adjusting the dates."
-
-
-def flights_intro(
-    origin: str | None,
-    destination: str | None,
-    language: SupportedLanguage,
-) -> str:
-    fr = origin or "?"
-    to = destination or "?"
-    if language == "ar":
-        return f"هذه رحلات متاحة من {fr} إلى {to}:"
-    if language == "fr":
-        return f"Voici les vols disponibles de {fr} vers {to} :"
-    return f"Here are available flights from {fr} to {to}:"
 
 
 def hotels_intro(city_name: str | None, language: SupportedLanguage) -> str:

@@ -7,3 +7,8 @@ __pycache__
 .env
 .env.*
 secrets
+tests
+docs
+*.md
+.git
+.gitignore

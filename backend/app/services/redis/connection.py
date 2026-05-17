@@ -5,6 +5,8 @@ try:
 except ImportError:  # pragma: no cover - optional service dependency.
     redis = None
 
+_client = None
+
 
 def build_redis_url() -> str | None:
     if settings.REDIS_URL:
@@ -17,25 +19,31 @@ def build_redis_url() -> str | None:
     return f"redis://{auth}{settings.REDIS_HOST}:{port}/0"
 
 
-def get_redis_connection():
+def get_redis_client():
+    """Return a persistent Redis client (connection pool). Never close it between calls."""
+    global _client
     if redis is None:
         return None
+    if _client is None:
+        url = build_redis_url()
+        if not url:
+            return None
+        _client = redis.from_url(url, decode_responses=True)
+    return _client
 
-    redis_url = build_redis_url()
-    if not redis_url:
-        return None
 
-    return redis.from_url(redis_url, decode_responses=True)
+# Legacy alias — kept so existing callers don't break.
+def get_redis_connection():
+    return get_redis_client()
 
 
 async def test_redis_connection() -> str:
-    client = get_redis_connection()
+    client = get_redis_client()
     if client is None:
         return "Redis is not configured"
 
     try:
         await client.set(f"{settings.REDIS_KEY_PREFIX}:health", "ok")
-        await client.aclose()
         return "Redis connected successfully"
     except Exception as exc:
         return f"Redis connection failed: {exc}"

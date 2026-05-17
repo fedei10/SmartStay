@@ -92,7 +92,7 @@ async def book_flight(payload: FlightBookRequest):
             message="flight booking completed",
             data=await service.book(
                 prebook_id=payload.prebookId,
-                transaction_id=payload.transactionId,
+                payment=payload.payment or {},
             ),
         )
     except httpx.HTTPStatusError as exc:
@@ -113,13 +113,13 @@ async def get_flight_booking(booking_id: str):
 
 @router.get("/bookings")
 async def list_flight_bookings(
-    airline_pnr: str | None = Query(default=None),
-    last_name: str | None = Query(default=None),
+    airline_pnr: str | None = Query(default=None, alias="airlinePnr"),
+    last_name: str | None = Query(default=None, alias="lastName"),
 ):
     if bool(airline_pnr) != bool(last_name):
         raise HTTPException(
             status_code=400,
-            detail="airline_pnr and last_name must be provided together",
+            detail="airlinePnr and lastName must be provided together",
         )
 
     service = LiteAPIFlightsService()

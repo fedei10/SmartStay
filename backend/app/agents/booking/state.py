@@ -38,34 +38,34 @@ class BookingState(TypedDict, total=False):
     retrieval_context: list[dict]
     mcp_tools: list[str]
     requested_services: list[str]
+    service_selection_required: bool | None
 
-    # Location / travel dates
+    # Location / hotel dates
     city_name: str | None
     country_code: str | None
-    origin: str | None
-    destination: str | None
-    departure_date: str | None
-    return_date: str | None
 
-    # Trip details
-    trip_type: str | None          # "one_way" | "round_trip"
-    travelers: int | None
+    # Stay details
     checkin_date: str | None
     checkout_date: str | None
     guests: int | None
     rooms: int | None
 
-    # Hotel search results
+    # Selection state — which item the user picked from a displayed list (1-based)
+    selected_item_index: int | None
+
+    # Hotel search results (list display)
     hotels: list[HotelOption]
+
+    # Hotel rates for a specific hotel (room options)
+    hotel_rates: list[dict]
 
     # Slot-filling helpers
     missing_fields: list[str]
     asked_fields: list[str]
 
-    # Selection state
-    selected_hotel_id: str | None
-    selected_hotel_offer_id: str | None
-    selected_flight_offer_id: str | None
+    # Selection identifiers
+    selected_hotel_id: str | None       # hotel chosen from hotels list
+    selected_hotel_offer_id: str | None # room/rate offer chosen from hotel_rates
 
     # Payment / booking state
     prebook_id: str | None
@@ -73,13 +73,14 @@ class BookingState(TypedDict, total=False):
     secret_key: str | None
     payment_status: str | None     # "payment_required" | "completed"
     booking_status: str | None     # "payment_required" | "guest_details_required" | "confirmed"
+    booking_type: str | None       # "hotel"
     payment_url: str | None
     payment_sdk_secret_key: str | None
     payment_sdk_public_key: str | None
     payment_transaction_id: str | None
     payment_prebook_id: str | None
 
-    # Guest details (collected after payment)
+    # Guest details for hotel booking (collected after payment)
     guest_first_name: str | None
     guest_last_name: str | None
     guest_email: str | None
@@ -94,15 +95,15 @@ class BookingState(TypedDict, total=False):
     error_message: str | None
     state: dict | None
 
-    # Flights
-    flights: list[dict]
-
     # Legacy next_action literal (kept for routing compatibility)
     next_action: Literal[
         "ask_clarification",
         "search_hotels",
         "show_hotels",
-        "route_to_flights",
+        "search_hotel_rates",
+        "show_hotel_rates",
+        "prebook_hotel",
+        "payment_required",
         "route_to_insurance",
         "route_to_package",
         "answer_general",

@@ -5,8 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field
 TravelIntent = Literal[
     "hotel_search",
     "hotel_booking",
-    "flight_search",
-    "flight_booking",
+    "hotel_selection",       # user picked a hotel from the displayed list
+    "hotel_rate_selection",  # user picked a room/rate from displayed rates
     "insurance",
     "combined_trip",
     "general_travel_question",
@@ -16,12 +16,11 @@ TravelIntent = Literal[
 AgentName = Literal[
     "travel_booking_agent",
     "hotel_booking_agent",
-    "flight_booking_agent",
     "insurance_management_agent",
     "general_travel_assistant",
 ]
 
-RequestedService = Literal["hotels", "flights", "insurance", "planning"]
+RequestedService = Literal["hotels", "insurance", "planning"]
 
 
 class TravelOrchestratorDecision(BaseModel):
@@ -37,26 +36,42 @@ class TravelOrchestratorDecision(BaseModel):
     country_code: str | None = Field(
         default=None, description="ISO 3166-1 alpha-2 country code when available."
     )
-    origin: str | None = Field(
-        default=None, description="Flight origin IATA airport code (e.g. TUN, CDG) when available."
-    )
-    destination: str | None = Field(
+    checkin_date: str | None = Field(
         default=None,
-        description="Flight destination IATA airport code (e.g. CDG, JFK) when available.",
+        description=(
+            "Resolved ISO date YYYY-MM-DD for hotel check-in. "
+            "Resolve relative phrases like 'next week' → next Monday, 'this weekend' → nearest Saturday."
+        ),
     )
-    departure_date: str | None = Field(
-        default=None, description="Resolved ISO date YYYY-MM-DD for flight departure."
-    )
-    return_date: str | None = Field(
-        default=None, description="Resolved ISO date YYYY-MM-DD for return flight when round trip."
-    )
-    trip_type: str | None = Field(
+    checkout_date: str | None = Field(
         default=None,
-        description="'one_way' or 'round_trip'. Infer from context — default to one_way when unclear.",
+        description=(
+            "Resolved ISO date YYYY-MM-DD for hotel check-out. "
+            "Default stay: 3 nights when the user gives a week/period without an explicit duration."
+        ),
     )
-    travelers: int | None = Field(
+    guests: int | None = Field(
         default=None,
-        description="Total number of travelers (adults). Extract from phrases like '2 people', 'for 3'.",
+        description="Number of hotel guests (adults). Extract from '2 people', 'family of 4', etc.",
+    )
+    selected_item_index: int | None = Field(
+        default=None,
+        description=(
+            "1-based index when the user selects an item from a displayed list. "
+            "Extract from '1', '2', 'the first one', 'option 2', 'hotel 3', etc."
+        ),
+    )
+    guest_first_name: str | None = Field(
+        default=None,
+        description="Main guest first name for hotel booking. Extract from user message.",
+    )
+    guest_last_name: str | None = Field(
+        default=None,
+        description="Main guest last name for hotel booking.",
+    )
+    guest_email: str | None = Field(
+        default=None,
+        description="Main guest email address for hotel booking.",
     )
     response_language: str = Field(
         default="en",
@@ -69,7 +84,7 @@ class TravelOrchestratorDecision(BaseModel):
         default_factory=list,
         description=(
             "Travel services the user is asking for, inferred from the latest message "
-            "and recent memory. Include hotels, flights, insurance, or planning."
+            "and recent memory. Include hotels, insurance, or planning."
         ),
     )
 

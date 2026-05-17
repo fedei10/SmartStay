@@ -78,6 +78,9 @@ class LiteAPIService:
         else:
             raise last_error or RuntimeError("LiteAPI request failed")
 
+        if response.status_code == 204 or not response.content:
+            return {}
+
         data = response.json()
         return data if isinstance(data, dict) else {"data": data}
 
