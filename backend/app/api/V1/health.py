@@ -10,6 +10,7 @@ from app.services.gemini.connection import test_gemini_connection
 from app.services.liteapi.connection import test_liteapi_connection
 from app.services.postgres.connection import test_postgres_connection as run_postgres_test
 from app.services.redis.connection import test_redis_connection
+from app.services.swiftrouter import check_swiftrouter
 
 router = APIRouter(prefix="/health",tags=["Health"])
 
@@ -52,6 +53,17 @@ async def test_elasticsearch_connections():
         message="elasticsearch health checked",
         data={"elasticsearch": await test_elasticsearch_connection()},
     )
+
+@router.get("/swiftrouter")
+async def test_swiftrouter():
+    result = await check_swiftrouter()
+    code = 200 if result.get("ok") else 503
+    return success_response(
+        code=code,
+        message="SwiftRouter reachable" if result.get("ok") else "SwiftRouter unavailable",
+        data={"swiftrouter": result},
+    )
+
 
 @router.get("/liteapi")
 def test_liteapi_connections(

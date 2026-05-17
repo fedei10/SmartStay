@@ -5,6 +5,7 @@ uvicorn
 email-validator
 pydantic-settings
 httpx
+langchain-openai
 langchain-google-genai
 langchain-groq
 langchain-mcp-adapters

@@ -21,8 +21,12 @@ class Settings(BaseSettings):
     )
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
+    SWIFTROUTER_API_KEY: str | None = None
+    SWIFTROUTER_MODEL: str = "gpt-5"
+    SWIFTROUTER_BASE_URL: str = "https://api.swiftrouter.com/v1"
+
     GROQ_API_KEY: str | None = None
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "llama-3.1-8b-instant"
 
     LITEAPI_API_KEY: str | None = Field(
         default=None,
