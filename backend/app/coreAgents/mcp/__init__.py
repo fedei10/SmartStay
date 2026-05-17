@@ -1,1 +1,1 @@
-"""MCP server configuration for SmartStay agents."""
+"""MCP server configuration for ttrip agents."""

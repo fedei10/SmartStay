@@ -1,6 +1,7 @@
 from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import DateTime, func
 
 
 class Base(DeclarativeBase):
@@ -17,4 +18,13 @@ class TimestampMixin:
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class EntityStateMixin:
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_deleted: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )

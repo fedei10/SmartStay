@@ -1,1 +1,1 @@
-"""AI helpers for SmartStay."""
+"""AI helpers for ttrip."""

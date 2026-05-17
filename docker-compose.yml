@@ -46,5 +46,53 @@ services:
       - "8000"
       - --reload
 
+  frontend:
+    build:
+      context: ./frontend
+    container_name: geai_frontend
+    restart: unless-stopped
+    env_file:
+      - backend/.env
+    environment:
+      BACKEND_INTERNAL_URL: http://fastapi:8000
+      NEXT_PUBLIC_API_URL: http://localhost:8001
+      NEXT_PUBLIC_APP_URL: http://localhost:3004
+    depends_on:
+      - fastapi
+    ports:
+      - "3004:3004"
+
+  redis:
+    image: redis:7-alpine
+    container_name: geai_redis
+    restart: unless-stopped
+    profiles:
+      - orchestration
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    container_name: geai_elasticsearch
+    restart: unless-stopped
+    profiles:
+      - orchestration
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+
 volumes:
   postgres_data:
+  redis_data:
+  elasticsearch_data:

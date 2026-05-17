@@ -18,7 +18,15 @@ dependencies = [
     "arq",
     "pytest",
     "pytest-asyncio",
-    "httpx"
+    "httpx",
+    "langchain-groq",
+    "langchain-mcp-adapters",
+    "langgraph",
+    "langgraph-checkpoint-redis",
+    "langchain-elasticsearch",
+    "elasticsearch",
+    "prometheus-client",
+    "slowapi",
 ]
 
 [tool.pytest.ini_options]

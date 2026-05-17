@@ -1,0 +1,45 @@
+models:
+  travel_orchestrator:
+    provider: groq
+    class: ChatGroq
+    env_api_key: GROQ_API_KEY
+    env_model: GROQ_MODEL
+    default_model: llama-3.3-70b-versatile
+    temperature: 0
+    max_retries: 2
+
+tooling:
+  liteapi:
+    provider: mcp
+    client: MultiServerMCPClient
+    config_module: app.coreAgents.mcp.liteapi
+    tool_provider: app.coreAgents.tools.liteapi.LiteAPIMCPToolProvider
+    auth_source: LITEAPI_API_KEY
+    allowed_tools_env: LITEAPI_MCP_TOOL_NAMES
+
+memory:
+  short_term:
+    service: app.services.redis.memory.ConversationMemory
+    backend: redis
+    fallback: in_process
+    url_env: REDIS_URL
+    key_prefix_env: REDIS_KEY_PREFIX
+    turns_env: ORCHESTRATOR_MEMORY_TURNS
+
+retrieval:
+  orchestration:
+    service: app.services.elasticsearch.retrieval.OrchestrationRetriever
+    backend: elasticsearch
+    fallback: empty_context
+    host_env: ELASTICSEARCH_HOST
+    index_env: ELASTICSEARCH_INDEX
+    limit_env: ORCHESTRATOR_RETRIEVAL_LIMIT
+
+pydantic:
+  version: 2
+  rules:
+    - Use ConfigDict through model_config.
+    - Use model_dump instead of dict.
+    - Use model_validate instead of parse_obj.
+    - For API input schemas, default to extra='forbid'.
+    - For ORM read schemas, use ConfigDict(from_attributes=True).

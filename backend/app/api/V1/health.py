@@ -3,9 +3,13 @@
 
 
 from fastapi import APIRouter, Query
+
+from app.schemas.base import success_response
+from app.services.elasticsearch.connection import test_elasticsearch_connection
 from app.services.gemini.connection import test_gemini_connection
 from app.services.liteapi.connection import test_liteapi_connection
 from app.services.postgres.connection import test_postgres_connection as run_postgres_test
+from app.services.redis.connection import test_redis_connection
 
 router = APIRouter(prefix="/health",tags=["Health"])
 
@@ -14,19 +18,40 @@ router = APIRouter(prefix="/health",tags=["Health"])
 
 @router.get("")
 async def health_check():
-    return {"status": "healthy"}
+    return success_response(
+        message="healthy",
+        data={"status": "healthy"},
+    )
 
 @router.get("/gemini")
 def test_gemini_connections():
-    return {
-        "gemini": test_gemini_connection(),
-    }
+    return success_response(
+        message="gemini health checked",
+        data={"gemini": test_gemini_connection()},
+    )
 
 @router.get("/postgres")
 def test_postgres_connections():
-    return {
-        "postgres": run_postgres_test(),
-    }
+    return success_response(
+        message="postgres health checked",
+        data={"postgres": run_postgres_test()},
+    )
+
+
+@router.get("/redis")
+async def test_redis_connections():
+    return success_response(
+        message="redis health checked",
+        data={"redis": await test_redis_connection()},
+    )
+
+
+@router.get("/elasticsearch")
+async def test_elasticsearch_connections():
+    return success_response(
+        message="elasticsearch health checked",
+        data={"elasticsearch": await test_elasticsearch_connection()},
+    )
 
 @router.get("/liteapi")
 def test_liteapi_connections(
@@ -44,14 +69,13 @@ def test_liteapi_connections(
     )
 
     if result.get("status") == "ok" and result.get("result_count", 0) > 0:
-        return {
-            "status": "success",
-            "message": "LiteAPI returned hotels",
-            "liteapi": result,
-        }
+        return success_response(
+            message="LiteAPI returned hotels",
+            data={"liteapi": result},
+        )
 
-    return {
-        "status": "error",
-        "message": "LiteAPI did not return hotels",
-        "liteapi": result,
-    }
+    return success_response(
+        code=503,
+        message="LiteAPI did not return hotels",
+        data={"liteapi": result},
+    )

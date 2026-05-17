@@ -21,18 +21,44 @@ class Settings(BaseSettings):
     )
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
     LITEAPI_API_KEY: str | None = Field(
         default=None,
         validation_alias=AliasChoices("LITEAPI_API_KEY", "LITE_API"),
     )
     LITEAPI_ENV: str = "sandbox"
     LITEAPI_MCP_TOOL_NAMES: str = "get_data_hotels"
+    LITEAPI_MCP_TOOL_TIMEOUT_SECONDS: float = 8.0
 
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
     POSTGRES_SERVER: str
     POSTGRES_PORT: int
     POSTGRES_DB: str
+
+    REDIS_URL: str | None = None
+    REDIS_HOST: str | None = None
+    REDIS_PORT: int | None = None
+    REDIS_PASSWORD: str | None = None
+    REDIS_KEY_PREFIX: str = "ttrip"
+    ORCHESTRATOR_MEMORY_TURNS: int = 6
+
+    ELASTICSEARCH_HOST: str | None = None
+    ELASTICSEARCH_USER: str | None = None
+    ELASTICSEARCH_PASSWORD: str | None = None
+    ELASTICSEARCH_INDEX: str = "ttrip_knowledge"
+    ORCHESTRATOR_RETRIEVAL_LIMIT: int = 3
+
+    LOG_LEVEL: str = "INFO"
+    JSON_LOGS: bool = True
+    REQUEST_ID_HEADER: str = "X-Request-ID"
+    ENABLE_METRICS: bool = True
+    RATE_LIMIT_ENABLED: bool = False
+    RATE_LIMIT_DEFAULT: str = "120/minute"
+    PROVIDER_REQUEST_TIMEOUT_SECONDS: float = 30.0
+    PROVIDER_MAX_RETRIES: int = 2
 
     SECRET_KEY: str
     ALGORITHM: str = "HS256"

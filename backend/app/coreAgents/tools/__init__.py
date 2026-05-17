@@ -1,1 +1,1 @@
-"""Tool loading helpers for SmartStay agents."""
+"""Tool loading helpers for ttrip agents."""

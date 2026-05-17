@@ -1,19 +1,41 @@
+from app.core.config import settings
 
-from app.config import Settings  
-import app.services.redis as redis
+try:
+    from redis import asyncio as redis
+except ImportError:  # pragma: no cover - optional service dependency.
+    redis = None
+
+
+def build_redis_url() -> str | None:
+    if settings.REDIS_URL:
+        return settings.REDIS_URL
+    if not settings.REDIS_HOST:
+        return None
+
+    auth = f":{settings.REDIS_PASSWORD}@" if settings.REDIS_PASSWORD else ""
+    port = settings.REDIS_PORT or 6379
+    return f"redis://{auth}{settings.REDIS_HOST}:{port}/0"
+
 
 def get_redis_connection():
-    return redis.StrictRedis(
-        host=Settings.REDIS_HOST,
-        port=Settings.REDIS_PORT,
-        password=Settings.REDIS_PASSWORD,
-        decode_responses=True
-    )
+    if redis is None:
+        return None
 
-def test_redis_connection():
+    redis_url = build_redis_url()
+    if not redis_url:
+        return None
+
+    return redis.from_url(redis_url, decode_responses=True)
+
+
+async def test_redis_connection() -> str:
+    client = get_redis_connection()
+    if client is None:
+        return "Redis is not configured"
+
     try:
-        r = get_redis_connection()
-        r.set("test", "ok")
-        return "✅ Redis Connected Successfully"
-    except Exception as e:
-        return f"❌ Redis Connection Failed: {str(e)}"
+        await client.set(f"{settings.REDIS_KEY_PREFIX}:health", "ok")
+        await client.aclose()
+        return "Redis connected successfully"
+    except Exception as exc:
+        return f"Redis connection failed: {exc}"

@@ -6,7 +6,14 @@ email-validator
 pydantic-settings
 httpx
 langchain-google-genai
+langchain-groq
 langchain-mcp-adapters
 langgraph
+langgraph-checkpoint-redis
+langchain-elasticsearch
+redis
+elasticsearch
+prometheus-client
+slowapi
 psycopg2-binary
 PyYAML
