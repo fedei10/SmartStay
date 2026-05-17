@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import date
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -247,6 +248,7 @@ async def orchestrate_travel(state: BookingState, config: RunnableConfig):
                     content=(
                         f"{get_prompt('ttrip_travel_orchestrator')}\n\n"
                         "Runtime context available to the orchestrator:\n"
+                        f"- current_date: {date.today().isoformat()}\n"
                         f"- Recent conversation memory: {_compact_context(memory_context)}\n"
                         f"- Retrieved ttrip knowledge: {_compact_context(retrieval_context)}\n"
                         f"- Available LiteAPI MCP tools: {', '.join(mcp_tools) or 'None'}\n"

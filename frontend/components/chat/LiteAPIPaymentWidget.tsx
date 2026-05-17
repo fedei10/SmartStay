@@ -4,9 +4,8 @@ import { useMemo, useState, type MouseEvent } from 'react';
 
 declare global {
   interface Window {
-    LiteAPIPayment?: new (config: Record<string, unknown>) => {
-      handlePayment: () => void;
-    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    LiteAPIPayment?: new (config: any) => { handlePayment: () => void };
   }
 }
 

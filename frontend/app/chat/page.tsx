@@ -6,46 +6,51 @@ import HomeClient from '../home-client';
 
 export const dynamic = 'force-dynamic';
 
+type ChatSearchParams = {
+  payment_success?: string;
+  session_id?: string;
+  liteapi?: string;
+  transaction_id?: string;
+  prebook_id?: string;
+  conversation_id?: string;
+};
+
 interface ChatPageProps {
-  searchParams?: Promise<{
-    payment_success?: string;
-    session_id?: string;
-    liteapi?: string;
-    transaction_id?: string;
-    prebook_id?: string;
-    conversation_id?: string;
-  }>;
+  searchParams?: Promise<ChatSearchParams>;
+}
+
+function buildChatRedirectUrl(params?: ChatSearchParams): string {
+  const query = new URLSearchParams();
+  Object.entries(params ?? {}).forEach(([key, value]) => {
+    if (value) query.set(key, value);
+  });
+  const queryString = query.toString();
+  return queryString ? `/chat?${queryString}` : '/chat';
 }
 
 async function ChatPageContent({ searchParams }: ChatPageProps) {
   await connection();
   const resolvedSearchParams = await searchParams;
-  const paymentSuccess = resolvedSearchParams?.payment_success;
-  const sessionId = resolvedSearchParams?.session_id;
-  const liteapi = resolvedSearchParams?.liteapi;
-  const transactionId = resolvedSearchParams?.transaction_id;
-  const prebookId = resolvedSearchParams?.prebook_id;
-  const conversationId = resolvedSearchParams?.conversation_id;
   const { userId } = await auth();
 
   if (!userId) {
-    let chatRedirectUrl = '/chat';
-    if (paymentSuccess === '1') {
-      const params = new URLSearchParams({ payment_success: '1' });
-      if (sessionId) params.set('session_id', sessionId);
-      if (liteapi) params.set('liteapi', liteapi);
-      if (transactionId) params.set('transaction_id', transactionId);
-      if (prebookId) params.set('prebook_id', prebookId);
-      if (conversationId) params.set('conversation_id', conversationId);
-      chatRedirectUrl = `/chat?${params.toString()}`;
-    }
-    redirect(`/sign-in?redirect_url=${encodeURIComponent(chatRedirectUrl)}`);
+    const redirectUrl = buildChatRedirectUrl(resolvedSearchParams);
+    redirect(`/sign-in?redirect_url=${encodeURIComponent(redirectUrl)}`);
   }
 
-  return <HomeClient />;
+  return (
+    <HomeClient
+      paymentSuccess={resolvedSearchParams?.payment_success === '1'}
+      sessionId={resolvedSearchParams?.session_id}
+      liteapi={resolvedSearchParams?.liteapi}
+      transactionId={resolvedSearchParams?.transaction_id}
+      prebookId={resolvedSearchParams?.prebook_id}
+      conversationId={resolvedSearchParams?.conversation_id}
+    />
+  );
 }
 
-export default function HomePage({ searchParams }: ChatPageProps) {
+export default function ChatPage({ searchParams }: ChatPageProps) {
   return (
     <Suspense fallback={<div className="min-h-screen bg-background" />}>
       <ChatPageContent searchParams={searchParams} />

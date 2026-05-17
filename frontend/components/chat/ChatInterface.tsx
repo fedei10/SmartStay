@@ -1,30 +1,50 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useUser, useAuth } from '@clerk/nextjs';
-import { Message, ChatResponse as APIResponse, Conversation } from '@/lib/types';
-import { ChatMessage } from './ChatMessage';
-import { ChatInput } from './ChatInput';
+import { useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { useSearchParams } from 'next/navigation';
 
-import { useImperativeHandle, forwardRef } from 'react';
+import { ChatInput } from './ChatInput';
+import { ChatMessage } from './ChatMessage';
+import { type ChatResponse as APIResponse, type Conversation, type Message } from '@/lib/types';
 
-interface ChatInterfaceProps {
+// ─── Public ref type ────────────────────────────────────────────────────────
+
+export interface ChatInterfaceRef {
+  reset: () => void;
+  selectConversation: (id: string) => void;
+}
+
+// ─── Props ───────────────────────────────────────────────────────────────────
+
+export interface ChatInterfaceProps {
   initialMessage?: string;
   onConversationsChange?: (conversations: Conversation[]) => void;
+  // Payment-return props forwarded from the server page component
+  paymentSuccess?: boolean;
+  sessionId?: string;
+  liteapi?: string;
+  transactionId?: string;
+  prebookId?: string;
+  conversationId?: string;
 }
 
-interface ConversationSummary {
-  id: string;
-  title: string;
-  updatedAt: string;
-}
+// ─── Constants ───────────────────────────────────────────────────────────────
 
 const MAX_CONVERSATIONS = 20;
 const INTERNAL_PAYMENT_VERIFIED_MESSAGE = '__internal_payment_verified__';
-const LEGACY_ENGLISH_WELCOME_SNIPPETS = [
+
+const LEGACY_WELCOME_SNIPPETS = [
   'welcome to stayai',
   'welcome to ttrip',
   'مرحبًا بك في ttrip',
@@ -38,6 +58,12 @@ const LEGACY_ENGLISH_WELCOME_SNIPPETS = [
   'i will plan hotels, flights',
 ];
 
+interface ConversationSummary {
+  id: string;
+  title: string;
+  updatedAt: string;
+}
+
 interface SendMessageOptions {
   silentUserMessage?: boolean;
   paymentCompleted?: boolean;
@@ -45,411 +71,514 @@ interface SendMessageOptions {
   paymentPrebookId?: string;
 }
 
-const isLegacyEnglishWelcomeMessage = (message: Message): boolean => {
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function getResponseType(data: APIResponse): NonNullable<Message['metadata']>['type'] {
+  const hasHotels = Array.isArray(data.hotels) && data.hotels.length > 0;
+  const hasFlights = Array.isArray(data.flights) && data.flights.length > 0;
+  const hasPayment = Boolean(data.payment_url || data.payment_sdk_secret_key);
+
+  if (hasPayment) return 'payment-link';
+  if (hasHotels && hasFlights) return 'combined-results';
+  if (hasFlights) return 'flight-results';
+  if (hasHotels) return 'hotel-results';
+  if (data.booking_status) return 'booking-status';
+  return 'text';
+}
+
+function isLegacyWelcomeMessage(message: Message): boolean {
   if (message.role !== 'assistant') return false;
   const text = (message.content || '').toLowerCase();
-  return LEGACY_ENGLISH_WELCOME_SNIPPETS.some((snippet) => text.includes(snippet));
-};
+  return LEGACY_WELCOME_SNIPPETS.some((s) => text.includes(s));
+}
 
-const detectFallbackLanguage = (value: string): 'ar' | 'en' => {
-  if (/[\u0600-\u06ff]/.test(value)) return 'ar';
-  return 'en';
-};
+function detectFallbackLanguage(value: string): 'ar' | 'en' {
+  return /[؀-ۿ]/.test(value) ? 'ar' : 'en';
+}
 
-const fallbackErrorMessage = (value: string): string => {
-  if (detectFallbackLanguage(value) === 'ar') {
-    return 'لم يصل رد من ttrip. تحقق من الاتصال وحاول مرة أخرى.';
-  }
-  return 'ttrip did not return a response. Check the connection and try again.';
-};
+function fallbackErrorMessage(value: string): string {
+  return detectFallbackLanguage(value) === 'ar'
+    ? 'لم يصل رد من ttrip. تحقق من الاتصال وحاول مرة أخرى.'
+    : 'ttrip did not return a response. Check the connection and try again.';
+}
 
-export const ChatInterface = forwardRef(({ onConversationsChange }: ChatInterfaceProps, ref) => {
-  const { user, isLoaded } = useUser();
-  const { getToken } = useAuth();
-  const searchParams = useSearchParams();
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [conversationId, setConversationId] = useState<string>('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [initialized, setInitialized] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+// ─── Component ───────────────────────────────────────────────────────────────
 
-  const summariesKey = user ? `ttrip:conversations:${user.id}` : '';
-  const activeConversationKey = user ? `ttrip:active_conversation:${user.id}` : '';
-  const conversationMessagesKey = (id: string) => (user ? `ttrip:messages:${user.id}:${id}` : '');
-
-  const toConversationList = (items: ConversationSummary[]): Conversation[] =>
-    items.map((item) => ({
-      id: item.id,
-      title: item.title,
-      createdAt: new Date(item.updatedAt),
-      updatedAt: new Date(item.updatedAt),
-      messageCount: 0,
-    }));
-
-
-  const loadSummaries = (): ConversationSummary[] => {
-    if (!summariesKey) return [];
-    try {
-      const raw = localStorage.getItem(summariesKey);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as ConversationSummary[];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  };
-
-  const saveSummaries = (items: ConversationSummary[]) => {
-    if (!summariesKey) return;
-    localStorage.setItem(summariesKey, JSON.stringify(items.slice(0, MAX_CONVERSATIONS)));
-    onConversationsChange?.(toConversationList(items.slice(0, MAX_CONVERSATIONS)));
-  };
-
-  const loadMessages = (id: string): Message[] => {
-    const key = conversationMessagesKey(id);
-    if (!key) return [];
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as Array<Omit<Message, 'timestamp'> & { timestamp: string }>;
-      if (!Array.isArray(parsed)) return [];
-      const restored = parsed.map((m) => ({ ...m, timestamp: new Date(m.timestamp) }));
-      const cleaned = restored.filter((m) => !isLegacyEnglishWelcomeMessage(m));
-      return cleaned;
-    } catch {
-      return [];
-    }
-  };
-
-  const saveMessages = (id: string, value: Message[]) => {
-    const key = conversationMessagesKey(id);
-    if (!key) return;
-    localStorage.setItem(
-      key,
-      JSON.stringify(value.map((m) => ({ ...m, timestamp: m.timestamp.toISOString() })))
-    );
-  };
-
-  const buildTitle = (value: Message[]) => {
-    const firstUserMessage = value.find((m) => m.role === 'user')?.content?.trim();
-    if (!firstUserMessage) return 'New trip';
-    return firstUserMessage.length > 50
-      ? `${firstUserMessage.slice(0, 50)}...`
-      : firstUserMessage;
-  };
-
-  const upsertConversationSummary = (id: string, value: Message[]) => {
-    const summaries = loadSummaries();
-    const updatedSummary: ConversationSummary = {
-      id,
-      title: buildTitle(value),
-      updatedAt: new Date().toISOString(),
-    };
-    const next = [updatedSummary, ...summaries.filter((s) => s.id !== id)];
-    saveSummaries(next);
-  };
-
-  const startNewConversation = () => {
-    const id = uuidv4();
-    setConversationId(id);
-    setMessages([]);
-    if (activeConversationKey) {
-      localStorage.setItem(activeConversationKey, id);
-    }
-  };
-
-  const selectConversation = (id: string) => {
-    const stored = loadMessages(id);
-    if (stored.length === 0) {
-      startNewConversation();
-      return;
-    }
-    setConversationId(id);
-    setMessages(stored);
-    if (activeConversationKey) {
-      localStorage.setItem(activeConversationKey, id);
-    }
-  };
-
-  useImperativeHandle(ref, () => ({
-    reset: () => {
-      startNewConversation();
+export const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(
+  (
+    {
+      onConversationsChange,
+      paymentSuccess: paymentSuccessProp = false,
+      sessionId: sessionIdProp,
+      liteapi: liteapiProp,
+      transactionId: transactionIdProp,
+      prebookId: prebookIdProp,
+      conversationId: conversationIdProp,
     },
-    selectConversation: (id: string) => {
-      selectConversation(id);
-    },
-  }));
+    ref,
+  ) => {
+    const { user, isLoaded } = useUser();
+    const { getToken } = useAuth();
+    // useSearchParams is kept as fallback for cases where the page doesn't
+    // resolve params server-side (e.g., direct navigation without Suspense).
+    const searchParams = useSearchParams();
 
-  // Initialize from persisted conversation state.
-  useEffect(() => {
-    if (!isLoaded || !user || initialized) return;
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [conversationId, setConversationId] = useState<string>('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [initialized, setInitialized] = useState(false);
 
-    const summaries = loadSummaries();
-    onConversationsChange?.(toConversationList(summaries));
+    const scrollRef = useRef<HTMLDivElement>(null);
+    // Prevents duplicate sends (e.g., React Strict Mode double-invoke or
+    // rapid user taps).
+    const isSendingRef = useRef(false);
+    // Prevents the payment continuation effect from firing more than once per
+    // component lifetime even if deps change.
+    const paymentContinuationFiredRef = useRef(false);
 
-    if (summaries.length === 0) {
-      startNewConversation();
-      setInitialized(true);
-      return;
-    }
+    // ── Stable storage-key helpers ──────────────────────────────────────────
 
-    const activeId = activeConversationKey ? localStorage.getItem(activeConversationKey) : null;
-    const selectedId = activeId && summaries.some((s) => s.id === activeId) ? activeId : summaries[0].id;
-    const storedMessages = loadMessages(selectedId);
-
-    if (storedMessages.length > 0) {
-      setConversationId(selectedId);
-      setMessages(storedMessages);
-      if (activeConversationKey) {
-        localStorage.setItem(activeConversationKey, selectedId);
+    const storageKeys = useMemo(() => {
+      if (!user) {
+        return {
+          summariesKey: '',
+          activeConversationKey: '',
+          messagesKey: (_id: string) => '',
+        };
       }
-    } else {
-      startNewConversation();
-    }
-
-    setInitialized(true);
-  }, [isLoaded, user, initialized, onConversationsChange]);
-
-  useEffect(() => {
-    if (!initialized || !user || !conversationId || messages.length === 0) return;
-    saveMessages(conversationId, messages);
-    upsertConversationSummary(conversationId, messages);
-    if (activeConversationKey) {
-      localStorage.setItem(activeConversationKey, conversationId);
-    }
-  }, [messages, conversationId, initialized, user]);
-
-  // If user returns from Stripe with success params, auto-continue the booking flow.
-  useEffect(() => {
-    if (!initialized || !isLoaded || !user) return;
-    const convoFromReturn = searchParams.get('conversation_id');
-    if (!convoFromReturn || convoFromReturn === conversationId) return;
-
-    const storedMessages = loadMessages(convoFromReturn);
-    if (storedMessages.length > 0) {
-      setConversationId(convoFromReturn);
-      setMessages(storedMessages);
-      if (activeConversationKey) {
-        localStorage.setItem(activeConversationKey, convoFromReturn);
-      }
-    }
-  }, [initialized, isLoaded, user, conversationId, searchParams]);
-
-  // If user returns from payment success params, auto-continue the booking flow.
-  useEffect(() => {
-    if (!initialized || !isLoaded || !user || !conversationId || isLoading) return;
-
-    const paymentSuccess = searchParams.get('payment_success');
-    const sessionId = searchParams.get('session_id');
-    const liteapi = searchParams.get('liteapi');
-    const liteTransactionId = searchParams.get('transaction_id');
-    const litePrebookId = searchParams.get('prebook_id');
-
-    if (paymentSuccess !== '1') return;
-
-    const dedupeId = sessionId || liteTransactionId || 'unknown';
-    const dedupeKey = `ttrip:payment_processed:${dedupeId}`;
-    if (sessionStorage.getItem(dedupeKey)) return;
-    sessionStorage.setItem(dedupeKey, '1');
-
-    const clearPaymentParams = () => {
-      const currentUrl = new URL(window.location.href);
-      currentUrl.searchParams.delete('payment_success');
-      currentUrl.searchParams.delete('session_id');
-      currentUrl.searchParams.delete('liteapi');
-      currentUrl.searchParams.delete('transaction_id');
-      currentUrl.searchParams.delete('prebook_id');
-      currentUrl.searchParams.delete('conversation_id');
-      const cleanUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
-      window.history.replaceState({}, '', cleanUrl);
-    };
-
-    const appendAssistantNotice = (content: string) => {
-      const noticeMessage: Message = {
-        id: (Date.now() + 2).toString(),
-        role: 'assistant',
-        content,
-        timestamp: new Date(),
-        metadata: { type: 'error' }
+      return {
+        summariesKey: `ttrip:conversations:${user.id}`,
+        activeConversationKey: `ttrip:active_conversation:${user.id}`,
+        messagesKey: (id: string) => `ttrip:messages:${user.id}:${id}`,
       };
-      setMessages((prev) => [...prev, noticeMessage]);
-    };
+    }, [user]);
 
-    const verifyAndContinue = async () => {
+    const toConversationList = useCallback(
+      (items: ConversationSummary[]): Conversation[] =>
+        items.map((item) => ({
+          id: item.id,
+          title: item.title,
+          createdAt: new Date(item.updatedAt),
+          updatedAt: new Date(item.updatedAt),
+          messageCount: 0,
+        })),
+      [],
+    );
+
+    const loadSummaries = useCallback((): ConversationSummary[] => {
+      if (!storageKeys.summariesKey) return [];
       try {
-        if (liteapi === '1' && liteTransactionId) {
-          await handleSendMessage(INTERNAL_PAYMENT_VERIFIED_MESSAGE, {
-            silentUserMessage: true,
-            paymentCompleted: true,
-            paymentTransactionId: liteTransactionId,
-            paymentPrebookId: litePrebookId || undefined,
-          });
-          clearPaymentParams();
+        const raw = localStorage.getItem(storageKeys.summariesKey);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw) as ConversationSummary[];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }, [storageKeys.summariesKey]);
+
+    const saveSummaries = useCallback(
+      (items: ConversationSummary[]) => {
+        if (!storageKeys.summariesKey) return;
+        const trimmed = items.slice(0, MAX_CONVERSATIONS);
+        localStorage.setItem(storageKeys.summariesKey, JSON.stringify(trimmed));
+        onConversationsChange?.(toConversationList(trimmed));
+      },
+      [storageKeys.summariesKey, onConversationsChange, toConversationList],
+    );
+
+    const loadMessages = useCallback(
+      (id: string): Message[] => {
+        const key = storageKeys.messagesKey(id);
+        if (!key) return [];
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw) as Array<
+            Omit<Message, 'timestamp'> & { timestamp: string }
+          >;
+          if (!Array.isArray(parsed)) return [];
+          const restored = parsed.map((m) => ({ ...m, timestamp: new Date(m.timestamp) }));
+          return restored.filter((m) => !isLegacyWelcomeMessage(m));
+        } catch {
+          return [];
+        }
+      },
+      [storageKeys],
+    );
+
+    const saveMessages = useCallback(
+      (id: string, value: Message[]) => {
+        const key = storageKeys.messagesKey(id);
+        if (!key) return;
+        localStorage.setItem(
+          key,
+          JSON.stringify(value.map((m) => ({ ...m, timestamp: m.timestamp.toISOString() }))),
+        );
+      },
+      [storageKeys],
+    );
+
+    const buildTitle = useCallback((value: Message[]) => {
+      const firstUser = value.find((m) => m.role === 'user')?.content?.trim();
+      if (!firstUser) return 'New trip';
+      return firstUser.length > 50 ? `${firstUser.slice(0, 50)}...` : firstUser;
+    }, []);
+
+    const upsertSummary = useCallback(
+      (id: string, value: Message[]) => {
+        const summaries = loadSummaries();
+        const next = [
+          { id, title: buildTitle(value), updatedAt: new Date().toISOString() },
+          ...summaries.filter((s) => s.id !== id),
+        ];
+        saveSummaries(next);
+      },
+      [loadSummaries, buildTitle, saveSummaries],
+    );
+
+    // ── Conversation management ──────────────────────────────────────────────
+
+    const startNewConversation = useCallback(() => {
+      const id = uuidv4();
+      setConversationId(id);
+      setMessages([]);
+      if (storageKeys.activeConversationKey) {
+        localStorage.setItem(storageKeys.activeConversationKey, id);
+      }
+    }, [storageKeys.activeConversationKey]);
+
+    const selectConversation = useCallback(
+      (id: string) => {
+        const stored = loadMessages(id);
+        if (stored.length === 0) {
+          startNewConversation();
           return;
         }
-
-        if (!sessionId) {
-          throw new Error('Missing payment callback identifiers');
+        setConversationId(id);
+        setMessages(stored);
+        if (storageKeys.activeConversationKey) {
+          localStorage.setItem(storageKeys.activeConversationKey, id);
         }
+      },
+      [loadMessages, startNewConversation, storageKeys.activeConversationKey],
+    );
 
-        await handleSendMessage(`Payment completed for session ${sessionId}. Continue the booking if the backend has enough context.`, {
-          silentUserMessage: true,
-        });
-        clearPaymentParams();
-      } catch (error) {
-        console.error('[ttrip] Payment continuation error:', error);
-        sessionStorage.removeItem(dedupeKey);
-        appendAssistantNotice(
-          'تعذر التحقق من الدفع الآن. أعد المحاولة من صفحة النجاح، أو اكتب "لقد دفعت" بعد تأكيد الدفع.'
+    useImperativeHandle(
+      ref,
+      () => ({ reset: startNewConversation, selectConversation }),
+      [startNewConversation, selectConversation],
+    );
+
+    // ── Initialization ───────────────────────────────────────────────────────
+
+    useEffect(() => {
+      if (!isLoaded || !user || initialized) return;
+
+      const summaries = loadSummaries();
+      onConversationsChange?.(toConversationList(summaries));
+
+      if (summaries.length === 0) {
+        startNewConversation();
+        setInitialized(true);
+        return;
+      }
+
+      // Prefer prop-provided conversationId (payment return) over last active.
+      const activeKey = storageKeys.activeConversationKey;
+      const storedActive = activeKey ? localStorage.getItem(activeKey) : null;
+      const targetId = conversationIdProp || storedActive;
+      const selectedId =
+        targetId && summaries.some((s) => s.id === targetId) ? targetId : summaries[0].id;
+      const storedMessages = loadMessages(selectedId);
+
+      if (storedMessages.length > 0) {
+        setConversationId(selectedId);
+        setMessages(storedMessages);
+        if (activeKey) localStorage.setItem(activeKey, selectedId);
+      } else {
+        startNewConversation();
+      }
+
+      setInitialized(true);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLoaded, user, initialized]);
+
+    // ── Persist messages on change ───────────────────────────────────────────
+
+    useEffect(() => {
+      if (!initialized || !user || !conversationId || messages.length === 0) return;
+      saveMessages(conversationId, messages);
+      upsertSummary(conversationId, messages);
+      if (storageKeys.activeConversationKey) {
+        localStorage.setItem(storageKeys.activeConversationKey, conversationId);
+      }
+    }, [messages, conversationId, initialized, user, saveMessages, upsertSummary, storageKeys]);
+
+    // ── Auto-scroll ──────────────────────────────────────────────────────────
+
+    useEffect(() => {
+      const container = scrollRef.current?.parentElement;
+      if (container) {
+        setTimeout(() => {
+          container.scrollTop = container.scrollHeight;
+        }, 0);
+      }
+    }, [messages]);
+
+    // ── Core send function ───────────────────────────────────────────────────
+
+    const handleSendMessage = useCallback(
+      async (userInput: string, options?: SendMessageOptions) => {
+        if (!user || !isLoaded) return;
+        if (isSendingRef.current) return;
+        isSendingRef.current = true;
+
+        // Use current conversationId or generate one if not yet set.
+        const activeConversationId = conversationId || uuidv4();
+
+        if (!options?.silentUserMessage) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: uuidv4(),
+              role: 'user',
+              content: userInput,
+              timestamp: new Date(),
+            },
+          ]);
+        }
+        setIsLoading(true);
+
+        try {
+          const token = await getToken();
+          if (!token) throw new Error('Failed to get authentication token');
+
+          const response = await fetch('/api/v1/chat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              message: userInput,
+              conversation_id: activeConversationId,
+              payment_completed: options?.paymentCompleted ?? false,
+              payment_transaction_id: options?.paymentTransactionId,
+              payment_prebook_id: options?.paymentPrebookId,
+            }),
+          });
+
+          const data: APIResponse & { error?: string; message?: string; detail?: unknown } =
+            await response.json().catch(() => ({}));
+
+          if (!response.ok) {
+            console.error('[ttrip] Backend chat error:', response.status, data);
+            throw new Error(
+              data.error ||
+                data.message ||
+                (typeof data.detail === 'string' ? data.detail : `Server error: ${response.status}`),
+            );
+          }
+
+          // KEY FIX: sync conversationId from backend response so that
+          // subsequent messages share the same backend memory thread.
+          const nextConversationId = data.conversation_id || activeConversationId;
+          if (nextConversationId !== conversationId) {
+            setConversationId(nextConversationId);
+            if (storageKeys.activeConversationKey) {
+              localStorage.setItem(storageKeys.activeConversationKey, nextConversationId);
+            }
+          }
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: uuidv4(),
+              role: 'assistant',
+              content: String(data.response || ''),
+              timestamp: new Date(),
+              metadata: {
+                type: getResponseType(data),
+                hotels: Array.isArray(data.hotels) ? data.hotels : [],
+                flights: Array.isArray(data.flights) ? data.flights : [],
+                payment_url: data.payment_url,
+                payment_sdk_secret_key: data.payment_sdk_secret_key,
+                payment_sdk_public_key: data.payment_sdk_public_key,
+                payment_transaction_id: data.payment_transaction_id,
+                payment_prebook_id: data.payment_prebook_id,
+                booking_status: data.booking_status,
+                state: data.state,
+                conversation_id: nextConversationId,
+              },
+            },
+          ]);
+        } catch (error) {
+          console.error('[ttrip] Chat error:', error);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: uuidv4(),
+              role: 'assistant',
+              content: fallbackErrorMessage(userInput),
+              timestamp: new Date(),
+              metadata: { type: 'error' },
+            },
+          ]);
+        } finally {
+          setIsLoading(false);
+          isSendingRef.current = false;
+        }
+      },
+      // conversationId is intentionally included so we send the latest value.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [user, isLoaded, conversationId, getToken, storageKeys.activeConversationKey],
+    );
+
+    // Keep a ref so the payment effect can call the latest version without
+    // being re-triggered every time handleSendMessage identity changes.
+    const sendRef = useRef(handleSendMessage);
+    useEffect(() => {
+      sendRef.current = handleSendMessage;
+    }, [handleSendMessage]);
+
+    // ── Payment-return continuation ──────────────────────────────────────────
+
+    useEffect(() => {
+      if (!initialized || !isLoaded || !user || !conversationId || isLoading) return;
+      if (paymentContinuationFiredRef.current) return;
+
+      // Props (resolved server-side) take priority over searchParams.
+      const isPaymentSuccess =
+        paymentSuccessProp || searchParams.get('payment_success') === '1';
+      if (!isPaymentSuccess) return;
+
+      const isLiteapi = liteapiProp === '1' || searchParams.get('liteapi') === '1';
+      const txId = transactionIdProp || searchParams.get('transaction_id');
+      const pbId = prebookIdProp || searchParams.get('prebook_id');
+      const sId = sessionIdProp || searchParams.get('session_id');
+
+      // Deduplicate across re-renders using sessionStorage.
+      const dedupeId = sId || txId || 'unknown';
+      const dedupeKey = `ttrip:payment_processed:${dedupeId}`;
+      if (sessionStorage.getItem(dedupeKey)) return;
+      sessionStorage.setItem(dedupeKey, '1');
+
+      paymentContinuationFiredRef.current = true;
+
+      const clearPaymentParams = () => {
+        const url = new URL(window.location.href);
+        ['payment_success', 'session_id', 'liteapi', 'transaction_id', 'prebook_id', 'conversation_id'].forEach(
+          (k) => url.searchParams.delete(k),
         );
-      }
-    };
-
-    void verifyAndContinue();
-  }, [initialized, isLoaded, user, conversationId, isLoading, searchParams]);
-
-  // Auto scroll to bottom
-  useEffect(() => {
-    const scrollContainer = scrollRef.current?.parentElement;
-    if (scrollContainer) {
-      setTimeout(() => {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      }, 0);
-    }
-  }, [messages]);
-
-  const handleSendMessage = async (userInput: string, options?: SendMessageOptions) => {
-    if (!user || !isLoaded) return;
-
-    if (!options?.silentUserMessage) {
-      const userMessage: Message = {
-        id: Date.now().toString(),
-        role: 'user',
-        content: userInput,
-        timestamp: new Date(),
+        window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
       };
-      setMessages((prev) => [...prev, userMessage]);
-    }
-    setIsLoading(true);
 
-    try {
-      const token = await getToken();
-      if (!token) {
-        throw new Error('Failed to get authentication token');
-      }
-
-      const response = await fetch('/api/v1/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          message: userInput,
-          conversation_id: conversationId,
-        }),
-      });
-
-      const data: APIResponse & { error?: string; message?: string; detail?: unknown } =
-        await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        console.error('[ttrip] Backend chat error:', response.status, data);
-        throw new Error(
-          data.error ||
-          data.message ||
-          (typeof data.detail === 'string' ? data.detail : `Server error: ${response.status}`)
-        );
-      }
-
-      console.log('[ttrip] Received data:', data);
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: String(data.response || ''),
-        timestamp: new Date(),
-        metadata: {
-          type: (Array.isArray(data.hotels) && data.hotels.length > 0) ? 'hotel-results' :
-            (data.payment_url || data.payment_sdk_secret_key) ? 'payment-link' : 'text',
-          hotels: Array.isArray(data.hotels) ? data.hotels : [],
-          payment_url: data.payment_url,
-          payment_sdk_secret_key: data.payment_sdk_secret_key,
-          payment_sdk_public_key: data.payment_sdk_public_key,
-          payment_transaction_id: data.payment_transaction_id,
-          payment_prebook_id: data.payment_prebook_id,
-          booking_status: data.booking_status,
-          state: data.state,
-          conversation_id: data.conversation_id || conversationId,
-        },
+      const appendError = (content: string) => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: uuidv4(),
+            role: 'assistant',
+            content,
+            timestamp: new Date(),
+            metadata: { type: 'error' },
+          },
+        ]);
       };
-      setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('[ttrip] Chat error:', error);
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: fallbackErrorMessage(userInput),
-        timestamp: new Date(),
-        metadata: { type: 'error' }
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
-  const handleSelectHotel = async (selection: number) => {
-    if (isLoading) return;
-    await handleSendMessage(String(selection));
-  };
+      void (async () => {
+        try {
+          if (isLiteapi && txId) {
+            await sendRef.current(INTERNAL_PAYMENT_VERIFIED_MESSAGE, {
+              silentUserMessage: true,
+              paymentCompleted: true,
+              paymentTransactionId: txId,
+              paymentPrebookId: pbId || undefined,
+            });
+          } else if (sId) {
+            await sendRef.current(
+              `Payment completed for session ${sId}. Continue the booking.`,
+              { silentUserMessage: true },
+            );
+          } else {
+            throw new Error('Missing payment callback identifiers');
+          }
+          clearPaymentParams();
+        } catch (error) {
+          console.error('[ttrip] Payment continuation error:', error);
+          sessionStorage.removeItem(dedupeKey);
+          paymentContinuationFiredRef.current = false;
+          appendError(
+            'Could not verify payment. Please try again or type "I have paid" to continue.',
+          );
+        }
+      })();
+      // Fire once when the component is ready and conversationId is known.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialized, isLoaded, user, conversationId, isLoading, paymentSuccessProp]);
 
-  return (
-    <div className="flex flex-col h-screen bg-background">
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-1">
-          {messages.map((message) => (
-            <ChatMessage
-              key={message.id}
-              message={message}
-              onSelectHotel={handleSelectHotel}
-              isLoading={isLoading}
-            />
-          ))}
+    // ── Hotel selection ──────────────────────────────────────────────────────
 
-          {messages.length === 0 && !isLoading && (
-            <div className="flex min-h-[55vh] flex-col items-center justify-center text-center">
-              <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-                What trip are we planning?
-              </h1>
-              <p className="mt-3 max-w-md text-sm text-muted-foreground">
-                Ask about hotels, flights, travel dates, budgets, or a full itinerary.
-              </p>
-            </div>
-          )}
+    const handleSelectHotel = useCallback(
+      async (selection: number) => {
+        if (isLoading) return;
+        await handleSendMessage(String(selection));
+      },
+      [isLoading, handleSendMessage],
+    );
 
-          {isLoading && (
-            <div className="flex justify-start mb-4 animate-fade-in">
-              <div className="bg-card border border-border rounded-2xl rounded-tl-none px-4 py-3 flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="text-sm text-muted-foreground font-medium">ttrip is thinking...</span>
+    // ── Render ───────────────────────────────────────────────────────────────
+
+    return (
+      <div className="flex flex-col h-screen bg-background">
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-1">
+            {messages.map((message) => (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                onSelectHotel={handleSelectHotel}
+                isLoading={isLoading}
+              />
+            ))}
+
+            {messages.length === 0 && !isLoading && (
+              <div className="flex min-h-[55vh] flex-col items-center justify-center text-center">
+                <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+                  What trip are we planning?
+                </h1>
+                <p className="mt-3 max-w-md text-sm text-muted-foreground">
+                  Ask about hotels, flights, travel dates, budgets, or a full itinerary.
+                </p>
               </div>
-            </div>
-          )}
+            )}
 
-          <div ref={scrollRef} />
+            {isLoading && (
+              <div className="flex justify-start mb-4 animate-fade-in">
+                <div className="bg-card border border-border rounded-2xl rounded-tl-none px-4 py-3 flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <span className="text-sm text-muted-foreground font-medium">
+                    ttrip is thinking...
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div ref={scrollRef} />
+          </div>
+        </div>
+
+        {/* Input */}
+        <div className="sticky bottom-0 border-t border-border bg-background/95 backdrop-blur-sm py-4 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-3xl mx-auto">
+            <ChatInput onSubmit={handleSendMessage} isLoading={isLoading} />
+          </div>
         </div>
       </div>
-
-      {/* Input Area */}
-      <div className="sticky bottom-0 border-t border-border bg-background/95 backdrop-blur-sm py-4 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-3xl mx-auto">
-          <ChatInput onSubmit={handleSendMessage} isLoading={isLoading} />
-        </div>
-      </div>
-    </div>
-  );
-});
+    );
+  },
+);
 
 ChatInterface.displayName = 'ChatInterface';

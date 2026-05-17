@@ -3,6 +3,8 @@ export interface HotelRate {
   currency?: string;
   room_type?: string;
   board_type?: string;
+  offer_id?: string;
+  offerId?: string;
 }
 
 export interface Hotel {
@@ -19,16 +21,84 @@ export interface Hotel {
   rates?: HotelRate[];
 }
 
+export interface FlightSegment {
+  from?: string;
+  to?: string;
+  departure_time?: string;
+  arrival_time?: string;
+  carrier?: string;
+  flight_number?: string;
+  duration?: string;
+}
+
+export interface FlightOffer {
+  id?: string;
+  offer_id?: string;
+  offerId?: string;
+  airline?: string;
+  price?: number;
+  currency?: string;
+  departure_time?: string;
+  arrival_time?: string;
+  duration?: string;
+  stops?: number;
+  segments?: FlightSegment[];
+}
+
+export interface TravelState {
+  origin?: string;
+  destination?: string;
+  departure_date?: string;
+  return_date?: string;
+  trip_type?: 'one_way' | 'round_trip' | string;
+  travelers?: number;
+
+  hotel_needed?: boolean;
+  checkin_date?: string;
+  checkout_date?: string;
+  guests?: number;
+  rooms?: number;
+
+  budget_level?: 'budget' | 'mid_range' | 'luxury' | string;
+  budget_amount?: number;
+  currency?: string;
+
+  selected_hotel_id?: string;
+  selected_hotel_offer_id?: string;
+  selected_flight_offer_id?: string;
+
+  prebook_id?: string;
+  transaction_id?: string;
+  payment_status?: string;
+  booking_status?: string;
+
+  next_action?: string;
+  missing_fields?: string[];
+
+  [key: string]: unknown;
+}
+
 export interface ChatMetadata {
-  type?: 'text' | 'hotel-results' | 'payment-link' | 'error';
+  type?:
+    | 'text'
+    | 'hotel-results'
+    | 'flight-results'
+    | 'combined-results'
+    | 'payment-link'
+    | 'booking-status'
+    | 'error';
+
   hotels?: Hotel[];
+  flights?: FlightOffer[];
+
   payment_url?: string;
   payment_sdk_secret_key?: string;
   payment_sdk_public_key?: string;
   payment_transaction_id?: string;
   payment_prebook_id?: string;
+
   booking_status?: string;
-  state?: unknown;
+  state?: TravelState | unknown;
   conversation_id?: string;
 }
 
@@ -51,14 +121,23 @@ export interface Conversation {
 export interface ChatResponse {
   conversation_id?: string;
   response?: string;
+
   hotels?: Hotel[];
+  flights?: FlightOffer[];
+
   payment_url?: string;
   payment_sdk_secret_key?: string;
   payment_sdk_public_key?: string;
   payment_transaction_id?: string;
   payment_prebook_id?: string;
+
   booking_status?: string;
-  state?: unknown;
+  state?: TravelState | unknown;
+
+  intent?: string;
+  agent?: string;
+  next_action?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Booking {
@@ -72,4 +151,6 @@ export interface Booking {
   total_amount: number | string;
   payment_status: 'succeeded' | 'pending' | string;
   updated_at: string;
+  // Optional fields for combined/flight bookings
+  flight_reference?: string;
 }

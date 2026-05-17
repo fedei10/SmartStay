@@ -1,28 +1,63 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Sidebar } from '@/components/layout/Sidebar';
-import { ChatInterface } from '@/components/chat/ChatInterface';
+import { ChatInterface, ChatInterfaceRef } from '@/components/chat/ChatInterface';
 import { Conversation } from '@/lib/types';
 
-export default function HomeClient() {
-    const chatRef = useRef<{ reset: () => void; selectConversation: (id: string) => void }>(null);
-    const [conversations, setConversations] = useState<Conversation[]>([]);
+export interface HomeClientProps {
+  paymentSuccess?: boolean;
+  sessionId?: string;
+  liteapi?: string;
+  transactionId?: string;
+  prebookId?: string;
+  conversationId?: string;
+}
 
-    return (
-        <div className="flex h-screen bg-background overflow-hidden relative">
-            <Sidebar
-                conversations={conversations}
-                onNewSearch={() => chatRef.current?.reset()}
-                onSelectConversation={(id) => chatRef.current?.selectConversation(id)}
-            />
-            <div className="flex flex-col flex-1 w-full relative">
-                <Header />
-                <main className="flex-1 overflow-hidden relative">
-                    <ChatInterface ref={chatRef} onConversationsChange={setConversations} />
-                </main>
-            </div>
-        </div>
-    );
+export default function HomeClient({
+  paymentSuccess = false,
+  sessionId,
+  liteapi,
+  transactionId,
+  prebookId,
+  conversationId,
+}: HomeClientProps) {
+  const chatRef = useRef<ChatInterfaceRef | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+
+  const handleNewSearch = useCallback(() => {
+    chatRef.current?.reset();
+  }, []);
+
+  const handleSelectConversation = useCallback((id: string) => {
+    chatRef.current?.selectConversation(id);
+  }, []);
+
+  return (
+    <div className="relative flex h-screen overflow-hidden bg-background">
+      <Sidebar
+        conversations={conversations}
+        onNewSearch={handleNewSearch}
+        onSelectConversation={handleSelectConversation}
+      />
+
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        <Header />
+
+        <main className="relative flex-1 overflow-hidden">
+          <ChatInterface
+            ref={chatRef}
+            onConversationsChange={setConversations}
+            paymentSuccess={paymentSuccess}
+            sessionId={sessionId}
+            liteapi={liteapi}
+            transactionId={transactionId}
+            prebookId={prebookId}
+            conversationId={conversationId}
+          />
+        </main>
+      </div>
+    </div>
+  );
 }

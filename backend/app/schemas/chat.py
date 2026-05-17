@@ -8,6 +8,9 @@ from app.agents.booking.schemas import TravelIntent
 class ChatRequest(BaseModel):
     conversation_id: str = Field(default="default", min_length=1)
     message: str = Field(..., min_length=1)
+    payment_completed: bool = False
+    payment_transaction_id: str | None = None
+    payment_prebook_id: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
