@@ -31,12 +31,33 @@ class TravelOrchestratorDecision(BaseModel):
     agent: AgentName = Field(
         description="The ttrip sub-agent selected by the orchestrator."
     )
-    city_name: str | None = Field(default=None, description="Hotel destination city when available.")
-    country_code: str | None = Field(default=None, description="ISO 3166-1 alpha-2 country code when available.")
-    origin: str | None = Field(default=None, description="Flight origin IATA airport code when available.")
-    destination: str | None = Field(default=None, description="Flight destination IATA airport code when available.")
-    departure_date: str | None = Field(default=None, description="Flight departure date when available.")
-    return_date: str | None = Field(default=None, description="Flight return date when available.")
+    city_name: str | None = Field(
+        default=None, description="Hotel destination city name in English when available."
+    )
+    country_code: str | None = Field(
+        default=None, description="ISO 3166-1 alpha-2 country code when available."
+    )
+    origin: str | None = Field(
+        default=None, description="Flight origin IATA airport code (e.g. TUN, CDG) when available."
+    )
+    destination: str | None = Field(
+        default=None,
+        description="Flight destination IATA airport code (e.g. CDG, JFK) when available.",
+    )
+    departure_date: str | None = Field(
+        default=None, description="Resolved ISO date YYYY-MM-DD for flight departure."
+    )
+    return_date: str | None = Field(
+        default=None, description="Resolved ISO date YYYY-MM-DD for return flight when round trip."
+    )
+    trip_type: str | None = Field(
+        default=None,
+        description="'one_way' or 'round_trip'. Infer from context — default to one_way when unclear.",
+    )
+    travelers: int | None = Field(
+        default=None,
+        description="Total number of travelers (adults). Extract from phrases like '2 people', 'for 3'.",
+    )
     response_language: str = Field(
         default="en",
         description=(

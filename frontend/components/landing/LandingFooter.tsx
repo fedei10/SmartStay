@@ -1,60 +1,61 @@
 'use client';
 
 import Link from 'next/link';
-import { Heart } from 'lucide-react';
+
+const links = {
+  Company: ['About ttrip', 'Careers', 'Blog', 'Press'],
+  Support: ['Help center', 'Contact us', 'FAQ', 'System status'],
+  Legal: ['Privacy policy', 'Terms of service', 'Cookie policy', 'Compliance'],
+};
 
 export function LandingFooter() {
   return (
-    <footer className="bg-foreground/5 border-t border-border px-4 sm:px-6 lg:px-8 py-12">
+    <footer className="border-t border-border bg-secondary/20 px-4 sm:px-6 lg:px-8 py-14">
       <div className="max-w-6xl mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
+          {/* Brand */}
           <div className="space-y-4">
-            <h3 className="text-2xl font-bold text-foreground">ttrip</h3>
-            <p className="text-muted-foreground">
-              منصة حجز الفنادق الذكية برعاية الذكاء الاصطناعي.
+            <div className="flex items-center gap-2.5">
+              <div className="relative w-8 h-8 flex items-center justify-center">
+                <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-primary to-teal-600" />
+                <svg className="relative h-4 w-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                  <line x1="2" y1="12" x2="22" y2="12" />
+                </svg>
+              </div>
+              <span className="font-bold text-lg text-foreground">ttrip</span>
+            </div>
+            <p className="text-sm text-muted-foreground leading-relaxed max-w-[200px]">
+              AI-powered travel booking for the modern traveler.
             </p>
           </div>
 
-          <div className="space-y-4">
-            <h4 className="font-bold text-foreground">الشركة</h4>
-            <ul className="space-y-2">
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">عن ttrip</Link></li>
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">الوظائف</Link></li>
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">المدونة</Link></li>
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">الإعلام</Link></li>
-            </ul>
-          </div>
-
-          <div className="space-y-4">
-            <h4 className="font-bold text-foreground">المساعدة</h4>
-            <ul className="space-y-2">
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">مركز المساعدة</Link></li>
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">اتصل بنا</Link></li>
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">الأسئلة الشائعة</Link></li>
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">حالة النظام</Link></li>
-            </ul>
-          </div>
-
-          <div className="space-y-4">
-            <h4 className="font-bold text-foreground">القانوني</h4>
-            <ul className="space-y-2">
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">سياسة الخصوصية</Link></li>
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">شروط الخدمة</Link></li>
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">ملفات تعريف الارتباط</Link></li>
-              <li><Link href="#" className="text-muted-foreground hover:text-primary transition-colors">الامتثال</Link></li>
-            </ul>
-          </div>
+          {/* Link columns */}
+          {Object.entries(links).map(([heading, items]) => (
+            <div key={heading} className="space-y-4">
+              <h4 className="font-bold text-sm text-foreground">{heading}</h4>
+              <ul className="space-y-2.5">
+                {items.map((item) => (
+                  <li key={item}>
+                    <Link
+                      href="#"
+                      className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      {item}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
 
-        <div className="border-t border-border pt-8">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-muted-foreground flex items-center gap-2">
-              صُنع بـ <Heart className="h-4 w-4 fill-primary text-primary" /> لك
-            </p>
-            <p className="text-muted-foreground">
-              © 2024 ttrip. جميع الحقوق محفوظة.
-            </p>
-          </div>
+        <div className="border-t border-border pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-sm text-muted-foreground">© 2025 ttrip. All rights reserved.</p>
+          <p className="text-sm text-muted-foreground">
+            Built with ❤️ for travelers worldwide
+          </p>
         </div>
       </div>
     </footer>

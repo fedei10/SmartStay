@@ -229,7 +229,9 @@ async def chat(payload: ChatRequest, request: Request):
                 "hotels": result.get("hotels", [])
                 if result.get("next_action") == "show_hotels"
                 else [],
-                "flights": result.get("flights", []),
+                "flights": result.get("flights", [])
+                if result.get("next_action") == "show_flights"
+                else [],
                 "error_message": result.get("error_message"),
                 "mcp_tools": result.get("mcp_tools", []),
                 "retrieval_context": result.get("retrieval_context", []),

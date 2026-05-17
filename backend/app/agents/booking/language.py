@@ -65,6 +65,36 @@ def no_hotels_found(language: SupportedLanguage) -> str:
     return "I did not find hotels for that destination."
 
 
+def flight_search_error(language: SupportedLanguage) -> str:
+    if language == "ar":
+        return "لم أتمكن من البحث عن الرحلات الآن. حاول مرة أخرى."
+    if language == "fr":
+        return "Je n'ai pas pu rechercher les vols pour le moment. Réessayez."
+    return "I could not search flights right now. Please try again."
+
+
+def no_flights_found(language: SupportedLanguage) -> str:
+    if language == "ar":
+        return "لم أجد رحلات لهذه الوجهة في هذه التواريخ."
+    if language == "fr":
+        return "Aucun vol trouvé pour cette destination et ces dates."
+    return "No flights found for that route and dates. Try adjusting the dates."
+
+
+def flights_intro(
+    origin: str | None,
+    destination: str | None,
+    language: SupportedLanguage,
+) -> str:
+    fr = origin or "?"
+    to = destination or "?"
+    if language == "ar":
+        return f"هذه رحلات متاحة من {fr} إلى {to}:"
+    if language == "fr":
+        return f"Voici les vols disponibles de {fr} vers {to} :"
+    return f"Here are available flights from {fr} to {to}:"
+
+
 def hotels_intro(city_name: str | None, language: SupportedLanguage) -> str:
     city = city_name or "that destination"
     if language == "ar":

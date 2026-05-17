@@ -528,6 +528,14 @@ export const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(
       [isLoading, handleSendMessage],
     );
 
+    const handleSelectFlight = useCallback(
+      async (selection: number) => {
+        if (isLoading) return;
+        await handleSendMessage(String(selection));
+      },
+      [isLoading, handleSendMessage],
+    );
+
     // ── Render ───────────────────────────────────────────────────────────────
 
     return (
@@ -540,6 +548,7 @@ export const ChatInterface = forwardRef<ChatInterfaceRef, ChatInterfaceProps>(
                 key={message.id}
                 message={message}
                 onSelectHotel={handleSelectHotel}
+                onSelectFlight={handleSelectFlight}
                 isLoading={isLoading}
               />
             ))}

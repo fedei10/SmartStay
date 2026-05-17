@@ -10,8 +10,11 @@ from app.agents.booking.dependencies import BookingDeps
 from app.agents.booking.language import (
     agent_configuration_error,
     detect_language,
+    flight_search_error,
+    flights_intro,
     hotel_search_error,
     hotels_intro,
+    no_flights_found,
     no_hotels_found,
 )
 from app.agents.booking.schemas import TravelOrchestratorDecision
@@ -279,6 +282,8 @@ async def orchestrate_travel(state: BookingState, config: RunnableConfig):
         "destination": extracted.destination,
         "departure_date": extracted.departure_date,
         "return_date": extracted.return_date,
+        "trip_type": extracted.trip_type,
+        "travelers": extracted.travelers,
         "requested_services": extracted.requested_services,
         "next_action": None,
         "response_language": response_language,
@@ -300,7 +305,7 @@ async def hotel_agent_node(state: BookingState, config: RunnableConfig):
         result = await _agent_message(
             state,
             config,
-            task="The user wants hotel help, but the hotel search cannot run yet. Ask for the missing hotel search details.",
+            task="The user wants hotel help but the hotel search cannot run yet. Ask naturally for the next missing detail only.",
             missing=missing,
         )
         return {
@@ -309,6 +314,7 @@ async def hotel_agent_node(state: BookingState, config: RunnableConfig):
             "agent": "hotel_booking_agent",
         }
 
+    # All required fields present — go directly to search, no "I'll search" text.
     return {
         "next_action": "search_hotels",
         "agent": "hotel_booking_agent",
@@ -324,19 +330,22 @@ async def flight_agent_node(state: BookingState, config: RunnableConfig):
     if not state.get("departure_date"):
         missing.append("departure date")
 
-    result = await _agent_message(
-        state,
-        config,
-        task=(
-            "Handle the user's flight request. If details are missing, ask for the next useful "
-            "flight details. If enough details exist, explain that the next step is searching "
-            "flights, then verifying an offer before prebook/payment."
-        ),
-        missing=missing,
-    )
+    if missing:
+        result = await _agent_message(
+            state,
+            config,
+            task="Handle the user's flight request. Ask only for the single most important missing detail.",
+            missing=missing,
+        )
+        return {
+            **result,
+            "next_action": "error" if result.get("error_message") else "ask_clarification",
+            "agent": "flight_booking_agent",
+        }
+
+    # All required fields present — route directly to search, no intermediate text.
     return {
-        **result,
-        "next_action": "error" if result.get("error_message") else ("ask_clarification" if missing else "route_to_flights"),
+        "next_action": "route_to_flights",
         "agent": "flight_booking_agent",
     }
 
@@ -396,6 +405,168 @@ async def general_agent_node(state: BookingState, config: RunnableConfig):
         **result,
         "next_action": "answer_general",
         "agent": "general_travel_assistant",
+    }
+
+
+def _normalize_flight_offers(journeys: list[Any]) -> list[dict[str, Any]]:
+    """Normalize LiteAPI /flights/rates journeys into a flat offer list.
+
+    LiteAPI structure:
+        data[].journeys[].cheapestOffer.offerId
+        data[].journeys[].cheapestOffer.pricing.display.{total, currency}
+        data[].journeys[].segments[].{originCode, destinationCode,
+            departureTime, arrivalTime, carrier.{marketingCode, marketingName},
+            duration.iso8601, flight.marketingNumber}
+        data[].journeys[].totalDuration
+    """
+    result = []
+    for journey in journeys[:10]:
+        if not isinstance(journey, dict):
+            continue
+
+        cheapest = journey.get("cheapestOffer") or {}
+        display = (cheapest.get("pricing") or {}).get("display") or {}
+
+        segments_raw = journey.get("segments") or []
+        segments: list[dict[str, Any]] = []
+        for seg in segments_raw:
+            if not isinstance(seg, dict):
+                continue
+            carrier = seg.get("carrier") or {}
+            duration = seg.get("duration") or {}
+            flight = seg.get("flight") or {}
+            segments.append(
+                {
+                    "from": seg.get("originCode"),
+                    "to": seg.get("destinationCode"),
+                    "departure_time": seg.get("departureTime"),
+                    "arrival_time": seg.get("arrivalTime"),
+                    "carrier": carrier.get("marketingCode"),
+                    "carrier_name": carrier.get("marketingName"),
+                    "flight_number": flight.get("marketingNumber"),
+                    "duration": duration.get("iso8601"),
+                }
+            )
+
+        result.append(
+            {
+                "offer_id": cheapest.get("offerId"),
+                "airline": segments[0].get("carrier_name") if segments else None,
+                "airline_code": segments[0].get("carrier") if segments else None,
+                "price": display.get("total"),
+                "currency": display.get("currency", "USD"),
+                "duration": journey.get("totalDuration"),
+                "stops": max(0, len(segments) - 1),
+                "departure_time": segments[0].get("departure_time") if segments else None,
+                "arrival_time": segments[-1].get("arrival_time") if segments else None,
+                "segments": segments,
+            }
+        )
+    return result
+
+
+async def search_flights(state: BookingState, config: RunnableConfig):
+    deps = _deps(config)
+    origin = state.get("origin")
+    destination = state.get("destination")
+    departure_date = state.get("departure_date")
+    travelers = state.get("travelers") or 1
+    trip_type = state.get("trip_type") or "one_way"
+    return_date = state.get("return_date")
+    response_language = state.get("response_language", "en")
+
+    legs: list[dict[str, Any]] = [
+        {"origin": origin, "destination": destination, "date": departure_date}
+    ]
+    if trip_type == "round_trip" and return_date:
+        legs.append({"origin": destination, "destination": origin, "date": return_date})
+
+    try:
+        result = await deps.flights.search(
+            {
+                "legs": legs,
+                "adults": int(travelers),
+                "currency": "USD",
+                "country": "US",
+            }
+        )
+    except Exception as exc:
+        return {
+            "next_action": "error",
+            "error_message": str(exc),
+            "response": flight_search_error(response_language),
+            "flights": [],
+        }
+
+    data = result.get("data", result)
+    # LiteAPI structure: data is a list of journey-groups, each with a "journeys" list.
+    # Flatten all journeys so the normalizer receives one item per journey.
+    journeys_raw: list[Any] = []
+    if isinstance(data, list):
+        for group in data:
+            if isinstance(group, dict):
+                for journey in group.get("journeys") or []:
+                    journeys_raw.append(journey)
+        if not journeys_raw:
+            # Fallback: treat data items directly as offers (other providers)
+            journeys_raw = data
+    elif isinstance(data, dict):
+        # Non-LiteAPI shape
+        journeys_raw = (
+            data.get("flightOffers")
+            or data.get("offers")
+            or data.get("journeys")
+            or []
+        )
+
+    if not journeys_raw:
+        return {
+            "next_action": "error",
+            "response": no_flights_found(response_language),
+            "flights": [],
+        }
+
+    flights = _normalize_flight_offers(journeys_raw)
+    return {
+        "next_action": "show_flights",
+        "flights": flights,
+        "agent": "flight_booking_agent",
+    }
+
+
+async def generate_flight_response(state: BookingState):
+    flights = state.get("flights", [])
+    response_language = state.get("response_language", "en")
+
+    lines = [
+        flights_intro(state.get("origin"), state.get("destination"), response_language),
+        "",
+    ]
+    for i, flight in enumerate(flights, 1):
+        price = flight.get("price")
+        currency = flight.get("currency", "USD")
+        airline = flight.get("airline") or "Various airlines"
+        stops = flight.get("stops") or 0
+        duration = flight.get("duration") or ""
+        dep = flight.get("departure_time") or ""
+        arr = flight.get("arrival_time") or ""
+
+        price_str = f"{currency} {float(price):.0f}" if price is not None else "Price TBD"
+        stops_str = "Direct" if stops == 0 else f"{stops} stop{'s' if stops > 1 else ''}"
+        time_str = f" | {dep[:10]} {dep[11:16]}→{arr[11:16]}" if dep and arr else ""
+        duration_str = f" | {duration}" if duration else ""
+
+        lines.append(f"{i}. {airline} — {price_str} · {stops_str}{time_str}{duration_str}")
+
+    lines += [
+        "",
+        "Reply with the number of your preferred flight to proceed with booking.",
+    ]
+
+    return {
+        "response": "\n".join(lines),
+        "next_action": "show_flights",
+        "agent": "flight_booking_agent",
     }
 
 
@@ -462,5 +633,6 @@ async def generate_response(state: BookingState):
 
     return {
         "response": "\n".join(lines),
+        "next_action": "show_hotels",
         "agent": "hotel_booking_agent",
     }
